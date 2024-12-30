@@ -1366,9 +1366,11 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-rpc-types-trace",
  "async-trait",
+ "cfx-addr",
  "cfx-execute-helper",
  "cfx-executor",
  "cfx-parameters",
+ "cfx-rpc-cfx-impl",
  "cfx-rpc-cfx-types",
  "cfx-rpc-eth-api",
  "cfx-rpc-eth-types",
@@ -1389,9 +1391,13 @@ dependencies = [
  "parity-version",
  "parking_lot 0.11.2",
  "primitives",
- "runtime",
  "rustc-hex",
+ "serde",
+ "serde_json",
+ "solidity-abi",
+ "thiserror",
  "tokio 1.40.0",
+ "tokio-stream",
  "transient-hashmap",
 ]
 
@@ -1419,6 +1425,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfx-rpc-cfx-impl"
+version = "0.1.0"
+dependencies = [
+ "cfx-addr",
+ "cfx-execute-helper",
+ "cfx-rpc-cfx-types",
+ "cfx-types",
+ "cfx-util-macros",
+ "cfxcore",
+ "jsonrpc-core 18.0.0",
+ "log",
+ "primitives",
+]
+
+[[package]]
 name = "cfx-rpc-cfx-types"
 version = "2.4.0"
 dependencies = [
@@ -1433,6 +1454,8 @@ dependencies = [
  "log",
  "parity-version",
  "primitives",
+ "rand 0.7.3",
+ "rand_xorshift 0.2.0",
  "serde",
  "serde_json",
  "strum_macros",
@@ -1495,6 +1518,7 @@ dependencies = [
  "cfx-types",
  "jsonrpc-core 18.0.0",
  "jsonrpsee",
+ "jsonrpsee-core",
  "revm",
  "serde_json",
  "thiserror",
@@ -1957,6 +1981,7 @@ dependencies = [
  "cfx-parameters",
  "cfx-rpc",
  "cfx-rpc-builder",
+ "cfx-rpc-cfx-impl",
  "cfx-rpc-cfx-types",
  "cfx-rpc-eth-types",
  "cfx-rpc-primitives",
@@ -2024,7 +2049,6 @@ dependencies = [
  "revm",
  "rlp 0.4.6",
  "rpassword",
- "runtime",
  "rustc-hex",
  "secret-store",
  "serde",
@@ -2045,7 +2069,6 @@ dependencies = [
  "throttling",
  "tokio 1.40.0",
  "tokio-stream",
- "tokio-timer",
  "toml",
  "transient-hashmap",
  "txgen",
@@ -7289,14 +7312,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 
 [[package]]
-name = "runtime"
-version = "0.1.0"
-dependencies = [
- "futures 0.1.31",
- "tokio 0.1.22",
-]
-
-[[package]]
 name = "rust_decimal"
 version = "1.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8011,6 +8026,7 @@ dependencies = [
 name = "solidity-abi"
 version = "0.1.0"
 dependencies = [
+ "cfx-bytes",
  "cfx-types",
  "keccak-hash",
  "lazy_static",
