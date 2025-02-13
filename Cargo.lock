@@ -3740,6 +3740,7 @@ dependencies = [
  "cfx-vm-types",
  "primitives",
  "revm",
+ "serde",
  "typemap-ors",
 ]
 
