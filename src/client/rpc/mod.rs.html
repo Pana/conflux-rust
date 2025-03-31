@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/client/src/rpc/mod.rs`."><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../../static.files/rustdoc-b1a3e7f8283b8434.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="client" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (635124704 2024-01-27)" data-channel="nightly" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="../../../static.files/src-script-e66d777a5a92e9b2.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title">
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/client/src/rpc/mod.rs`."><title>mod.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../../static.files/rustdoc-5bc39a1768837dd0.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="client" data-themes="" data-resource-suffix="" data-rustdoc-version="1.78.0-nightly (b11fbfbf3 2024-02-03)" data-channel="nightly" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../../static.files/storage-4c98445ec4002617.js"></script><script defer src="../../../static.files/src-script-e66d777a5a92e9b2.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title">
             <h2>Files</h2></div></nav><div class="sidebar-resizer"></div>
     <main><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../../../client/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../../../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="example-wrap"><div data-nosnippet><pre class="src-line-numbers"><a href="#1" id="1">1</a>
 <a href="#2" id="2">2</a>
@@ -556,6 +556,11 @@
 <a href="#554" id="554">554</a>
 <a href="#555" id="555">555</a>
 <a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
 </pre></div><pre class="rust"><code><span class="comment">// Copyright 2019 Conflux Foundation. All rights reserved.
 // Conflux is free software and distributed under GNU General Public License.
 // See http://www.gnu.org/licenses/
@@ -564,6 +569,7 @@
     RpcModuleBuilder, RpcModuleSelection, RpcServerConfig, RpcServerHandle,
     TransportRpcModuleConfig,
 };
+<span class="kw">use </span>cfx_tasks::TaskExecutor;
 <span class="kw">use </span>cfxcore::{
     SharedConsensusGraph, SharedSynchronizationService, SharedTransactionPool,
 };
@@ -655,7 +661,7 @@
 
 <span class="kw">pub fn </span>setup_public_rpc_apis(
     common: Arc&lt;CommonImpl&gt;, rpc: Arc&lt;RpcImpl&gt;, pubsub: PubSubClient,
-    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration,
+    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration, executor: TaskExecutor,
 ) -&gt; MetaIoHandler&lt;Metadata&gt; {
     setup_rpc_apis(
         common,
@@ -665,12 +671,13 @@
         <span class="kw-2">&amp;</span>conf.raw_conf.throttling_conf,
         <span class="string">"rpc"</span>,
         conf.raw_conf.public_rpc_apis.list_apis(),
+        executor,
     )
 }
 
 <span class="kw">pub fn </span>setup_public_eth_rpc_apis(
     common: Arc&lt;CommonImpl&gt;, rpc: Arc&lt;RpcImpl&gt;, pubsub: PubSubClient,
-    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration,
+    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration, executor: TaskExecutor,
 ) -&gt; MetaIoHandler&lt;Metadata&gt; {
     setup_rpc_apis(
         common,
@@ -680,12 +687,13 @@
         <span class="kw-2">&amp;</span>conf.raw_conf.throttling_conf,
         <span class="string">"rpc"</span>,
         conf.raw_conf.public_evm_rpc_apis.list_apis(),
+        executor,
     )
 }
 
 <span class="kw">pub fn </span>setup_debug_rpc_apis(
     common: Arc&lt;CommonImpl&gt;, rpc: Arc&lt;RpcImpl&gt;, pubsub: PubSubClient,
-    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration,
+    eth_pubsub: EthPubSubClient, conf: <span class="kw-2">&amp;</span>Configuration, executor: TaskExecutor,
 ) -&gt; MetaIoHandler&lt;Metadata&gt; {
     setup_rpc_apis(
         common,
@@ -695,13 +703,14 @@
         <span class="kw-2">&amp;</span>conf.raw_conf.throttling_conf,
         <span class="string">"rpc_local"</span>,
         ApiSet::All.list_apis(),
+        executor,
     )
 }
 
 <span class="kw">fn </span>setup_rpc_apis(
     common: Arc&lt;CommonImpl&gt;, rpc: Arc&lt;RpcImpl&gt;, pubsub: PubSubClient,
     eth_pubsub: EthPubSubClient, throttling_conf: <span class="kw-2">&amp;</span><span class="prelude-ty">Option</span>&lt;String&gt;,
-    throttling_section: <span class="kw-2">&amp;</span>str, apis: HashSet&lt;Api&gt;,
+    throttling_section: <span class="kw-2">&amp;</span>str, apis: HashSet&lt;Api&gt;, executor: TaskExecutor,
 ) -&gt; MetaIoHandler&lt;Metadata&gt; {
     <span class="kw">let </span><span class="kw-2">mut </span>handler = MetaIoHandler::default();
     <span class="kw">for </span>api <span class="kw">in </span><span class="kw-2">&amp;</span>apis {
@@ -748,6 +757,7 @@
                     rpc.consensus.clone(),
                     rpc.sync.clone(),
                     rpc.tx_pool.clone(),
+                    executor.clone(),
                 )
                 .to_delegate();
                 <span class="kw">let </span>evm_trace_handler = EthTraceHandler {
@@ -1079,7 +1089,7 @@
     rpc_conf: RpcImplConfiguration, throttling_conf_file: <span class="prelude-ty">Option</span>&lt;String&gt;,
     apis: RpcModuleSelection, consensus: SharedConsensusGraph,
     sync: SharedSynchronizationService, tx_pool: SharedTransactionPool,
-    addr: <span class="prelude-ty">Option</span>&lt;SocketAddr&gt;,
+    addr: <span class="prelude-ty">Option</span>&lt;SocketAddr&gt;, executor: TaskExecutor,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;RpcServerHandle&gt;, String&gt; {
     <span class="kw">if </span>addr.is_none() {
         <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>);
@@ -1088,7 +1098,7 @@
     <span class="kw">let </span>enable_metrics = rpc_conf.enable_metrics;
 
     <span class="kw">let </span>rpc_module_builder =
-        RpcModuleBuilder::new(rpc_conf, consensus, sync, tx_pool);
+        RpcModuleBuilder::new(rpc_conf, consensus, sync, tx_pool, executor);
 
     <span class="macro">info!</span>(
         <span class="string">"Enabled evm async rpc modules: {:?}"</span>,

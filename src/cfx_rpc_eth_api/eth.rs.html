@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/rpc/rpc-eth-api/src/eth.rs`."><title>eth.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../static.files/rustdoc-b1a3e7f8283b8434.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cfx_rpc_eth_api" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (635124704 2024-01-27)" data-channel="nightly" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="../../static.files/src-script-e66d777a5a92e9b2.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title">
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/rpc/rpc-eth-api/src/eth.rs`."><title>eth.rs - source</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../static.files/rustdoc-5bc39a1768837dd0.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cfx_rpc_eth_api" data-themes="" data-resource-suffix="" data-rustdoc-version="1.78.0-nightly (b11fbfbf3 2024-02-03)" data-channel="nightly" data-search-js="search-dd67cee4cfa65049.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../static.files/storage-4c98445ec4002617.js"></script><script defer src="../../static.files/src-script-e66d777a5a92e9b2.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-48f368f3872407c8.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-04d5337699b92874.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title">
             <h2>Files</h2></div></nav><div class="sidebar-resizer"></div>
     <main><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../../cfx_rpc_eth_api/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="example-wrap"><div data-nosnippet><pre class="src-line-numbers"><a href="#1" id="1">1</a>
 <a href="#2" id="2">2</a>
@@ -366,14 +366,12 @@
 <a href="#364" id="364">364</a>
 <a href="#365" id="365">365</a>
 <a href="#366" id="366">366</a>
-<a href="#367" id="367">367</a>
-<a href="#368" id="368">368</a>
-<a href="#369" id="369">369</a>
-<a href="#370" id="370">370</a>
 </pre></div><pre class="rust"><code><span class="kw">use </span>cfx_rpc_eth_types::{
-    AccountPendingTransactions, Block, BlockNumber <span class="kw">as </span>BlockId, BlockOverrides,
+    AccessListResult, AccountPendingTransactions, Block,
+    BlockNumber <span class="kw">as </span>BlockId, BlockOverrides, Bundle, EthCallResponse,
     EthRpcLogFilter <span class="kw">as </span>Filter, FeeHistory, Header, Log, Receipt,
-    RpcStateOverride, SyncStatus, Transaction, TransactionRequest,
+    RpcStateOverride, SimulatePayload, SimulatedBlock, StateContext,
+    SyncStatus, Transaction, TransactionRequest,
 };
 <span class="kw">use </span>cfx_rpc_primitives::{Bytes, Index};
 <span class="kw">use </span>cfx_types::{Address, H256, H64, U256, U64};
@@ -561,14 +559,12 @@
     <span class="doccomment">/// `eth_simulateV1` executes an arbitrary number of transactions on top of
     /// the requested state. The transactions are packed into individual
     /// blocks. Overrides can be provided.
-    </span><span class="comment">// #[method(name = "simulateV1")]
-    // async fn simulate_v1(
-    //     &amp;self,
-    //     opts: SimBlock,
-    //     block_number: Option&lt;BlockId&gt;,
-    // ) -&gt; RpcResult&lt;Vec&lt;SimulatedBlock&gt;&gt;;
+    </span><span class="attr">#[method(name = <span class="string">"simulateV1"</span>)]
+    </span><span class="kw">async fn </span>simulate_v1(
+        <span class="kw-2">&amp;</span><span class="self">self</span>, opts: SimulatePayload, block_number: <span class="prelude-ty">Option</span>&lt;BlockId&gt;,
+    ) -&gt; RpcResult&lt;Vec&lt;SimulatedBlock&gt;&gt;;
 
-    </span><span class="doccomment">/// Executes a new message call immediately without creating a transaction
+    <span class="doccomment">/// Executes a new message call immediately without creating a transaction
     /// on the block chain.
     </span><span class="attr">#[method(name = <span class="string">"call"</span>)]
     </span><span class="kw">async fn </span>call(
@@ -579,15 +575,13 @@
 
     <span class="doccomment">/// Simulate arbitrary number of transactions at an arbitrary blockchain
     /// index, with the optionality of state overrides
-    </span><span class="comment">// #[method(name = "callMany")]
-    // async fn call_many(
-    //     &amp;self,
-    //     bundle: Bundle,
-    //     state_context: Option&lt;StateContext&gt;,
-    //     state_override: Option&lt;StateOverride&gt;,
-    // ) -&gt; RpcResult&lt;Vec&lt;EthCallResponse&gt;&gt;;
+    </span><span class="attr">#[method(name = <span class="string">"callMany"</span>)]
+    </span><span class="kw">async fn </span>call_many(
+        <span class="kw-2">&amp;</span><span class="self">self</span>, bundle: Bundle, state_context: <span class="prelude-ty">Option</span>&lt;StateContext&gt;,
+        state_override: <span class="prelude-ty">Option</span>&lt;RpcStateOverride&gt;,
+    ) -&gt; RpcResult&lt;Vec&lt;EthCallResponse&gt;&gt;;
 
-    </span><span class="doccomment">/// Generates an access list for a transaction.
+    <span class="doccomment">/// Generates an access list for a transaction.
     ///
     /// This method creates an [EIP2930](https://eips.ethereum.org/EIPS/eip-2930) type accessList based on a given Transaction.
     ///
@@ -603,14 +597,12 @@
     /// could change when the transaction is actually mined. Adding an
     /// accessList to your transaction does not necessary result in lower
     /// gas usage compared to a transaction without an access list.
-    </span><span class="comment">// #[method(name = "createAccessList")]
-    // async fn create_access_list(
-    //     &amp;self,
-    //     request: TransactionRequest,
-    //     block_number: Option&lt;BlockId&gt;,
-    // ) -&gt; RpcResult&lt;AccessListResult&gt;;
+    </span><span class="attr">#[method(name = <span class="string">"createAccessList"</span>)]
+    </span><span class="kw">async fn </span>create_access_list(
+        <span class="kw-2">&amp;</span><span class="self">self</span>, request: TransactionRequest, block_number: <span class="prelude-ty">Option</span>&lt;BlockId&gt;,
+    ) -&gt; RpcResult&lt;AccessListResult&gt;;
 
-    </span><span class="doccomment">/// Generates and returns an estimate of how much gas is necessary to allow
+    <span class="doccomment">/// Generates and returns an estimate of how much gas is necessary to allow
     /// the transaction to complete.
     </span><span class="attr">#[method(name = <span class="string">"estimateGas"</span>)]
     </span><span class="kw">async fn </span>estimate_gas(
