@@ -9,7 +9,7 @@
         msg: <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u8.html">u8</a>&gt;,
         min_protocol_version: <a class="struct" href="service/struct.ProtocolVersion.html" title="struct network::service::ProtocolVersion">ProtocolVersion</a>,
         version_valid_till: <a class="struct" href="service/struct.ProtocolVersion.html" title="struct network::service::ProtocolVersion">ProtocolVersion</a>,
-        priority: SendQueuePriority
+        priority: <a class="enum" href="../priority_send_queue/enum.SendQueuePriority.html" title="enum priority_send_queue::SendQueuePriority">SendQueuePriority</a>
     ) -&gt; <a class="enum" href="https://doc.rust-lang.org/nightly/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>, <a class="enum" href="enum.Error.html" title="enum network::Error">Error</a>&gt;;
 <span class="item-spacer"></span>    fn <a href="#tymethod.disconnect_peer" class="fn">disconnect_peer</a>(
         &amp;self,
@@ -32,7 +32,7 @@
     msg: <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u8.html">u8</a>&gt;,
     min_protocol_version: <a class="struct" href="service/struct.ProtocolVersion.html" title="struct network::service::ProtocolVersion">ProtocolVersion</a>,
     version_valid_till: <a class="struct" href="service/struct.ProtocolVersion.html" title="struct network::service::ProtocolVersion">ProtocolVersion</a>,
-    priority: SendQueuePriority
+    priority: <a class="enum" href="../priority_send_queue/enum.SendQueuePriority.html" title="enum priority_send_queue::SendQueuePriority">SendQueuePriority</a>
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/nightly/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>, <a class="enum" href="enum.Error.html" title="enum network::Error">Error</a>&gt;</h4></section><section id="tymethod.disconnect_peer" class="method"><a class="src rightside" href="../src/network/lib.rs.html#286-288">source</a><h4 class="code-header">fn <a href="#tymethod.disconnect_peer" class="fn">disconnect_peer</a>(
     &amp;self,
     node_id: &amp;<a class="type" href="node_table/type.NodeId.html" title="type network::node_table::NodeId">NodeId</a>,
