@@ -1,5 +1,4 @@
 mod unit_tester;
-mod util;
 
 use crate::{
     util::{find_all_json_tests, make_configuration},
