@@ -6,14 +6,14 @@ use log::debug;
 
 use primitives::*;
 use std::{ops::Deref, sync::Arc, thread, time::Duration};
-
+use cfxcore::transaction_pool::TransactionPoolTrait;
 use crate::BlockGenerator;
 
-pub struct BlockGeneratorTestApi(Arc<BlockGenerator>);
+pub struct BlockGeneratorTestApi<P: TransactionPoolTrait>(Arc<BlockGenerator<P>>);
 
 // Generate Block APIs for test only
-impl BlockGeneratorTestApi {
-    pub(crate) fn new(bg: Arc<BlockGenerator>) -> Self {
+impl<P: TransactionPoolTrait> BlockGeneratorTestApi<P> {
+    pub(crate) fn new(bg: Arc<BlockGenerator<P>>) -> Self {
         BlockGeneratorTestApi(bg)
     }
 
@@ -165,8 +165,8 @@ impl BlockGeneratorTestApi {
     }
 }
 
-impl Deref for BlockGeneratorTestApi {
-    type Target = BlockGenerator;
+impl<P: TransactionPoolTrait> Deref for BlockGeneratorTestApi<P> {
+    type Target = BlockGenerator<P>;
 
     fn deref(&self) -> &Self::Target { &*self.0 }
 }

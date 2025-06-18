@@ -1,7 +1,7 @@
 mod state;
 
 use crate::{BlockGenerator, MineWorker, SolutionReceiver};
-use cfxcore::pow::ProofOfWorkProblem;
+use cfxcore::{pow::ProofOfWorkProblem, transaction_pool::TransactionPoolTrait};
 use log::{debug, trace, warn};
 use std::{
     ops::Deref,
@@ -16,16 +16,16 @@ const BLOCK_FORCE_UPDATE_INTERVAL: Duration = Duration::from_secs(10);
 // Avoid busy loop: sleep for 30ms if the current loop iteration does nothing
 const BLOCKGEN_LOOP_SLEEP_DURATION: Duration = time::Duration::from_millis(30);
 
-pub(crate) struct MiningSession<'a> {
-    bg: &'a BlockGenerator,
+pub(crate) struct MiningSession<'a, P: TransactionPoolTrait> {
+    bg: &'a BlockGenerator<P>,
     miner: &'a dyn MineWorker,
     solution_rx: SolutionReceiver,
     state: MineState,
 }
 
-impl<'a> MiningSession<'a> {
+impl<'a, P: TransactionPoolTrait> MiningSession<'a, P> {
     pub fn new(
-        bg: &'a BlockGenerator, miner: &'a dyn MineWorker,
+        bg: &'a BlockGenerator<P>, miner: &'a dyn MineWorker,
         solution_rx: SolutionReceiver,
     ) -> Self {
         let state =
@@ -145,8 +145,8 @@ impl<'a> MiningSession<'a> {
     }
 }
 
-impl<'a> Deref for MiningSession<'a> {
-    type Target = BlockGenerator;
+impl<'a, P: TransactionPoolTrait> Deref for MiningSession<'a, P> {
+    type Target = BlockGenerator<P>;
 
     fn deref(&self) -> &Self::Target { &*self.bg }
 }

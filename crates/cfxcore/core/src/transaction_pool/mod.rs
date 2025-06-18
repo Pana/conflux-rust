@@ -8,9 +8,12 @@ mod garbage_collector;
 mod nonce_pool;
 mod pool_metrics;
 mod state_provider;
+mod traits;
 mod transaction_pool_inner;
 
 pub use error::TransactionPoolError;
+
+pub use traits::{PoolProviderTrait, TransactionPoolTrait};
 
 use crate::{
     block_data_manager::BlockDataManager,
@@ -1206,5 +1209,66 @@ impl TransactionPool {
 
     pub fn set_ready_for_mining(&self) {
         self.ready_for_mining.store(true, Ordering::SeqCst);
+    }
+}
+
+impl PoolProviderTrait for SharedTransactionPool {
+    fn machine(&self) -> Arc<Machine> { self.machine.clone() }
+
+    fn data_manager(&self) -> Arc<BlockDataManager> { self.data_man.clone() }
+}
+
+impl TransactionPoolTrait for SharedTransactionPool {
+    fn best_info_with_packed_transactions(
+        &self, num_txs: usize, block_size_limit: usize,
+        additional_transactions: Vec<Arc<SignedTransaction>>,
+    ) -> (
+        Arc<BestInformation>,
+        U256,
+        Vec<Arc<SignedTransaction>>,
+        Option<SpaceMap<U256>>,
+    ) {
+        self.get_best_info_with_packed_transactions(
+            num_txs,
+            block_size_limit,
+            additional_transactions,
+        )
+    }
+
+    fn get_transactions_can_be_pack<'a>(
+        &self, num_txs: usize, block_gas_limit: U256, evm_gas_limit: U256,
+        block_size_limit: usize, best_epoch_height: u64,
+        best_block_number: u64,
+    ) -> Vec<Arc<SignedTransaction>> {
+        self.pack_transactions(
+            num_txs,
+            block_gas_limit,
+            evm_gas_limit,
+            block_size_limit,
+            best_epoch_height,
+            best_block_number,
+        )
+    }
+
+    fn get_1559_transactions_can_be_pack<'a>(
+        &self, num_txs: usize, block_gas_limit: U256,
+        parent_base_price: SpaceMap<U256>, block_size_limit: usize,
+        best_epoch_height: u64, best_block_number: u64,
+    ) -> (Vec<Arc<SignedTransaction>>, SpaceMap<U256>) {
+        self.pack_transactions_1559(
+            num_txs,
+            block_gas_limit,
+            parent_base_price,
+            block_size_limit,
+            best_epoch_height,
+            best_block_number,
+        )
+    }
+
+    fn cal_1559_base_price<'a, I>(
+        &self, parent_hash: &H256, block_gas_limit: U256, txs: I,
+    ) -> Result<Option<SpaceMap<U256>>, String>
+    where I: Iterator<Item = &'a SignedTransaction> + 'a {
+        self.compute_1559_base_price(parent_hash, block_gas_limit, txs)
     }
 }

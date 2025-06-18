@@ -5,8 +5,9 @@ use cfx_parameters::{
 use cfx_types::{Address, SpaceMap, H256, U256};
 use cfxcore::{
     consensus::{consensus_inner::StateBlameInfo, pos_handler::PosVerifier},
+    transaction_pool::TransactionPoolTrait,
     verification::compute_transaction_root,
-    ConsensusGraph, SharedSynchronizationGraph, SharedTransactionPool,
+    ConsensusGraph, SharedSynchronizationGraph,
 };
 use lazy_static::lazy_static;
 use log::{debug, trace};
@@ -22,18 +23,18 @@ lazy_static! {
 }
 
 /// The interface for a conflux block generator
-pub struct BlockAssembler {
+pub struct BlockAssembler<P> {
     graph: SharedSynchronizationGraph,
-    txpool: SharedTransactionPool,
+    txpool: P,
     maybe_txgen: Option<SharedTransactionGenerator>,
     pos_verifier: Arc<PosVerifier>,
     mining_author: Address,
     max_consensus_block_size_in_bytes: usize,
 }
 
-impl BlockAssembler {
+impl<P: TransactionPoolTrait> BlockAssembler<P> {
     pub fn new(
-        graph: SharedSynchronizationGraph, txpool: SharedTransactionPool,
+        graph: SharedSynchronizationGraph, txpool: P,
         maybe_txgen: Option<SharedTransactionGenerator>,
         mining_author: Address, pos_verifier: Arc<PosVerifier>,
     ) -> Self {
@@ -166,7 +167,7 @@ impl BlockAssembler {
 
         let parent_block = self
             .txpool
-            .data_man
+            .data_manager()
             .block_header_by_hash(&best_info.best_block_hash)
             // The parent block must exists.
             .expect("Parent block not found");
@@ -183,7 +184,7 @@ impl BlockAssembler {
         };
 
         let (transactions, maybe_base_price) = if pack_height < cip1559_height {
-            let txs = self.txpool.pack_transactions(
+            let txs = self.txpool.get_transactions_can_be_pack(
                 num_txs,
                 block_gas_limit,
                 U256::zero(),
@@ -199,14 +200,15 @@ impl BlockAssembler {
                 parent_block.base_price().unwrap()
             };
 
-            let (txs, base_price) = self.txpool.pack_transactions_1559(
-                num_txs,
-                block_gas_limit,
-                parent_base_price,
-                block_size_limit,
-                best_info.best_epoch_number,
-                best_info.best_block_number,
-            );
+            let (txs, base_price) =
+                self.txpool.get_1559_transactions_can_be_pack(
+                    num_txs,
+                    block_gas_limit,
+                    parent_base_price,
+                    block_size_limit,
+                    best_info.best_epoch_number,
+                    best_info.best_block_number,
+                );
             (txs, Some(base_price))
         };
 
@@ -231,7 +233,7 @@ impl BlockAssembler {
         let consensus_graph = self.consensus_graph();
 
         let (best_info, block_gas_limit, transactions, maybe_base_price) =
-            self.txpool.get_best_info_with_packed_transactions(
+            self.txpool.best_info_with_packed_transactions(
                 num_txs,
                 block_size_limit,
                 additional_transactions,
@@ -302,7 +304,7 @@ impl BlockAssembler {
         let consensus_graph = self.consensus_graph();
 
         let (best_info, block_gas_limit, transactions, maybe_base_price) =
-            self.txpool.get_best_info_with_packed_transactions(
+            self.txpool.best_info_with_packed_transactions(
                 num_txs,
                 block_size_limit,
                 additional_transactions,
@@ -352,12 +354,12 @@ impl BlockAssembler {
         // get the best block
         let (best_info, _, _, _) = self
             .txpool
-            .get_best_info_with_packed_transactions(0, 0, Vec::new());
+            .best_info_with_packed_transactions(0, 0, Vec::new());
 
         let parent_hash = best_info.best_block_hash;
         let maybe_base_price = self
             .txpool
-            .compute_1559_base_price(
+            .cal_1559_base_price(
                 &parent_hash,
                 (GENESIS_GAS_LIMIT * ELASTICITY_MULTIPLIER as u64).into(),
                 transactions.iter().map(|x| &**x),
@@ -407,7 +409,7 @@ impl BlockAssembler {
 
         let maybe_base_price = self
             .txpool
-            .compute_1559_base_price(
+            .cal_1559_base_price(
                 &parent_hash,
                 (GENESIS_GAS_LIMIT * ELASTICITY_MULTIPLIER as u64).into(),
                 transactions.iter().map(|x| &**x),
@@ -451,7 +453,7 @@ impl BlockAssembler {
 
         let maybe_base_price = self
             .txpool
-            .compute_1559_base_price(
+            .cal_1559_base_price(
                 &parent_hash,
                 (GENESIS_GAS_LIMIT * ELASTICITY_MULTIPLIER as u64).into(),
                 transactions.iter().map(|x| &**x),

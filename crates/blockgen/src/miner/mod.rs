@@ -5,7 +5,7 @@
 pub mod cpu;
 pub mod stratum;
 
-use cfxcore::pow::ProofOfWorkProblem;
+use cfxcore::{pow::ProofOfWorkProblem, transaction_pool::TransactionPoolTrait};
 use std::sync::Arc;
 use stratum::Stratum;
 
@@ -20,8 +20,8 @@ pub enum MinerType {
     Cpu(usize), // Number of CPU workers
 }
 
-pub fn spawn(
-    bg: Arc<BlockGenerator>, miner_type: MinerType,
+pub fn spawn<P: TransactionPoolTrait>(
+    bg: Arc<BlockGenerator<P>>, miner_type: MinerType,
 ) -> (Box<dyn MineWorker>, SolutionReceiver) {
     let (worker, solution_receiver): (Box<dyn MineWorker>, _) = match miner_type
     {

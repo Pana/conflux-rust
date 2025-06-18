@@ -14,9 +14,7 @@ use crate::{
 
 use cfx_types::Address;
 use cfxcore::{
-    consensus::pos_handler::PosVerifier, pow::*, ConsensusGraph,
-    SharedSynchronizationGraph, SharedSynchronizationService,
-    SharedTransactionPool, Stopable,
+    consensus::pos_handler::PosVerifier, pow::*, transaction_pool::TransactionPoolTrait, ConsensusGraph, SharedSynchronizationGraph, SharedSynchronizationService, SharedTransactionPool, Stopable
 };
 use parking_lot::RwLock;
 use primitives::Block;
@@ -31,16 +29,16 @@ enum MiningStatus {
 type SolutionReceiver = mpsc::Receiver<ProofOfWorkSolution>;
 
 /// The interface for a conflux block generator
-pub struct BlockGenerator {
+pub struct BlockGenerator<P: TransactionPoolTrait> {
     pub(crate) pow_config: ProofOfWorkConfig,
     pub(crate) pow: Arc<PowComputer>,
     consensus: Arc<ConsensusGraph>,
     sync: SharedSynchronizationService,
     status: RwLock<MiningStatus>,
-    assembler: BlockAssembler,
+    assembler: BlockAssembler<P>,
 }
 
-impl BlockGenerator {
+impl<P: TransactionPoolTrait> BlockGenerator<P> {
     pub fn new(
         graph: SharedSynchronizationGraph, txpool: SharedTransactionPool,
         sync: SharedSynchronizationService,
@@ -85,7 +83,7 @@ impl BlockGenerator {
         self.sync.on_mined_block(block).ok();
     }
 
-    pub fn test_api(self: &Arc<Self>) -> BlockGeneratorTestApi {
+    pub fn test_api(self: &Arc<Self>) -> BlockGeneratorTestApi<P> {
         BlockGeneratorTestApi::new(self.clone())
     }
 
@@ -102,6 +100,6 @@ impl BlockGenerator {
     }
 }
 
-impl Stopable for BlockGenerator {
+impl<P: TransactionPoolTrait> Stopable for BlockGenerator<P> {
     fn stop(&self) { BlockGenerator::stop(self) }
 }

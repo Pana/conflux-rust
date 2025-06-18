@@ -1,5 +1,5 @@
 use cfx_types::U256;
-use cfxcore::pow::{PowComputer, ProofOfWorkProblem, ProofOfWorkSolution};
+use cfxcore::{pow::{PowComputer, ProofOfWorkProblem, ProofOfWorkSolution}, transaction_pool::TransactionPoolTrait};
 use log::{trace, warn};
 use std::{
     sync::{
@@ -26,8 +26,8 @@ pub struct CpuMinerCoordinator {
 
 impl CpuMinerCoordinator {
     /// Creates a new worker manager.
-    pub fn spawn(
-        bg: Arc<BlockGenerator>, num_worker: usize,
+    pub fn spawn<P: TransactionPoolTrait>(
+        bg: Arc<BlockGenerator<P>>, num_worker: usize,
     ) -> (Self, SolutionReceiver) {
         let (solution_tx, solution_rx) = mpsc::channel();
         let mut problem_txs = vec![];
@@ -52,15 +52,15 @@ impl MineWorker for CpuMinerCoordinator {
     }
 }
 
-pub struct CpuMiner {
-    bg: Arc<BlockGenerator>,
+pub struct CpuMiner<P: TransactionPoolTrait> {
+    bg: Arc<BlockGenerator<P>>,
     solution_tx: mpsc::Sender<ProofOfWorkSolution>,
     problem_rx: mpsc::Receiver<ProofOfWorkProblem>,
 }
 
-impl CpuMiner {
+impl<P: TransactionPoolTrait> CpuMiner<P> {
     pub fn spawn(
-        bg: Arc<BlockGenerator>,
+        bg: Arc<BlockGenerator<P>>,
         solution_tx: mpsc::Sender<ProofOfWorkSolution>,
         problem_rx: mpsc::Receiver<ProofOfWorkProblem>,
     ) {

@@ -32,7 +32,7 @@ use cfx_stratum::{
     Stratum as StratumService,
 };
 use cfx_types::{H256, U256};
-use cfxcore::pow::{PowComputer, ProofOfWorkProblem, ProofOfWorkSolution};
+use cfxcore::{pow::{PowComputer, ProofOfWorkProblem, ProofOfWorkSolution}, transaction_pool::TransactionPoolTrait};
 use log::{info, trace, warn};
 use parking_lot::Mutex;
 use std::{
@@ -263,7 +263,7 @@ impl MineWorker for Stratum {
 }
 
 impl Stratum {
-    pub fn spawn(bg: &BlockGenerator) -> (Self, SolutionReceiver) {
+    pub fn spawn<P: TransactionPoolTrait>(bg: &BlockGenerator<P>) -> (Self, SolutionReceiver) {
         let (solution_sender, solution_receiver) = mpsc::channel();
         let cfg = Options {
             listen_addr: bg.pow_config.stratum_listen_addr.clone(),
