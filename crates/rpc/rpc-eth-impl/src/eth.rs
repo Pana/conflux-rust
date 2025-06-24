@@ -1,8 +1,9 @@
 use crate::helpers::{FeeHistoryCache, MAX_FEE_HISTORY_CACHE_BLOCK_COUNT};
 use async_trait::async_trait;
 use cfx_execute_helper::estimation::EstimateRequest;
-use cfx_executor::executive::{
-    Executed, ExecutionError, ExecutionOutcome, TxDropError,
+use cfx_executor::{
+    executive::{Executed, ExecutionError, ExecutionOutcome, TxDropError},
+    spec::CommonParams,
 };
 use cfx_parameters::rpc::GAS_PRICE_DEFAULT_VALUE;
 use cfx_rpc_cfx_types::{
@@ -60,13 +61,14 @@ pub struct EthApi {
     tx_pool: SharedTransactionPool,
     fee_history_cache: FeeHistoryCache,
     executor: TaskExecutor,
+    machine_params: CommonParams,
 }
 
 impl EthApi {
     pub fn new(
         config: RpcImplConfiguration, consensus: SharedConsensusGraph,
         sync: SharedSynchronizationService, tx_pool: SharedTransactionPool,
-        executor: TaskExecutor,
+        executor: TaskExecutor, machine_params: CommonParams,
     ) -> Self {
         EthApi {
             config,
@@ -75,6 +77,7 @@ impl EthApi {
             tx_pool,
             fee_history_cache: FeeHistoryCache::new(),
             executor,
+            machine_params,
         }
     }
 
@@ -987,8 +990,7 @@ impl EthApi {
 
     pub fn max_priority_fee_per_gas(&self) -> CoreResult<U256> {
         let evm_ratio =
-            self.tx_pool.machine().params().evm_transaction_block_ratio
-                as usize;
+            self.machine_params.evm_transaction_block_ratio as usize;
 
         let fee_history = self.fee_history(
             HexU64::from(300),

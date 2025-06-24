@@ -99,7 +99,7 @@ use crate::{
 };
 use cfx_addr::Network;
 use cfx_execute_helper::estimation::EstimateRequest;
-use cfx_executor::state::State;
+use cfx_executor::{spec::CommonParams, state::State};
 use cfx_parameters::{
     consensus_internal::REWARD_EPOCH_COUNT,
     genesis::{
@@ -133,6 +133,7 @@ pub struct RpcImpl {
     maybe_txgen: Option<Arc<TransactionGenerator>>,
     maybe_direct_txgen: Option<Arc<Mutex<DirectTransactionGenerator>>>,
     accounts: Arc<AccountProvider>,
+    machine_params: CommonParams,
 }
 
 impl RpcImpl {
@@ -142,6 +143,7 @@ impl RpcImpl {
         maybe_txgen: Option<Arc<TransactionGenerator>>,
         maybe_direct_txgen: Option<Arc<Mutex<DirectTransactionGenerator>>>,
         config: RpcImplConfiguration, accounts: Arc<AccountProvider>,
+        machine_params: CommonParams,
     ) -> Self {
         RpcImpl {
             consensus,
@@ -152,6 +154,7 @@ impl RpcImpl {
             maybe_direct_txgen,
             config,
             accounts,
+            machine_params,
         }
     }
 
@@ -1868,7 +1871,6 @@ impl RpcImpl {
             )
         };
 
-        let machine = self.tx_pool.machine();
         let consensus = self.consensus_graph();
 
         let mut epoch_number = match last_epoch {
@@ -1935,7 +1937,7 @@ impl RpcImpl {
             }
 
             // Step 3: Stat blocks
-            let params = machine.params();
+            let params = &self.machine_params;
             stat.epoch_num += 1.into();
             for b in &blocks {
                 stat.total_block_num += 1.into();

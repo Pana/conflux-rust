@@ -12,11 +12,12 @@ use crate::{
     assembler::BlockAssembler, mine_session::MiningSession, miner::MineWorker,
 };
 
+use cfx_executor::machine::Machine;
 use cfx_types::Address;
 use cfxcore::{
-    consensus::pos_handler::PosVerifier, pow::*, ConsensusGraph,
-    SharedSynchronizationGraph, SharedSynchronizationService,
-    SharedTransactionPool, Stopable,
+    block_data_manager::BlockDataManager, consensus::pos_handler::PosVerifier,
+    pow::*, ConsensusGraph, SharedSynchronizationGraph,
+    SharedSynchronizationService, SharedTransactionPool, Stopable,
 };
 use parking_lot::RwLock;
 use primitives::Block;
@@ -47,6 +48,7 @@ impl BlockGenerator {
         maybe_txgen: Option<SharedTransactionGenerator>,
         pow_config: ProofOfWorkConfig, pow: Arc<PowComputer>,
         mining_author: Address, pos_verifier: Arc<PosVerifier>,
+        data_man: Arc<BlockDataManager>, machine: Arc<Machine>,
     ) -> Self {
         let consensus = graph.consensus.clone();
         let assembler = BlockAssembler::new(
@@ -55,6 +57,8 @@ impl BlockGenerator {
             maybe_txgen,
             mining_author,
             pos_verifier,
+            data_man,
+            machine,
         );
         BlockGenerator {
             pow_config,

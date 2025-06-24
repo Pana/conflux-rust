@@ -1,9 +1,11 @@
+use cfx_executor::machine::Machine;
 use cfx_parameters::{
     block::MAX_TRANSACTION_COUNT_PER_BLOCK, consensus::GENESIS_GAS_LIMIT,
     consensus_internal::ELASTICITY_MULTIPLIER,
 };
 use cfx_types::{Address, SpaceMap, H256, U256};
 use cfxcore::{
+    block_data_manager::BlockDataManager,
     consensus::{consensus_inner::StateBlameInfo, pos_handler::PosVerifier},
     verification::compute_transaction_root,
     ConsensusGraph, SharedSynchronizationGraph, SharedTransactionPool,
@@ -28,6 +30,8 @@ pub struct BlockAssembler {
     maybe_txgen: Option<SharedTransactionGenerator>,
     pos_verifier: Arc<PosVerifier>,
     mining_author: Address,
+    data_man: Arc<BlockDataManager>,
+    machine: Arc<Machine>,
     max_consensus_block_size_in_bytes: usize,
 }
 
@@ -36,6 +40,7 @@ impl BlockAssembler {
         graph: SharedSynchronizationGraph, txpool: SharedTransactionPool,
         maybe_txgen: Option<SharedTransactionGenerator>,
         mining_author: Address, pos_verifier: Arc<PosVerifier>,
+        data_man: Arc<BlockDataManager>, machine: Arc<Machine>,
     ) -> Self {
         let max_consensus_block_size_in_bytes =
             graph.verification_config.max_block_size_in_bytes;
@@ -46,6 +51,8 @@ impl BlockAssembler {
             pos_verifier,
             mining_author,
             max_consensus_block_size_in_bytes,
+            data_man,
+            machine,
         }
     }
 
@@ -119,8 +126,7 @@ impl BlockAssembler {
         let my_timestamp = max(parent_timestamp, now);
 
         let custom = self
-            .txpool
-            .machine()
+            .machine
             .params()
             .custom_prefix(parent_height + 1)
             .unwrap_or(vec![]);
@@ -165,14 +171,12 @@ impl BlockAssembler {
         let best_info = consensus_graph.best_info();
 
         let parent_block = self
-            .txpool
             .data_man
             .block_header_by_hash(&best_info.best_block_hash)
             // The parent block must exists.
             .expect("Parent block not found");
 
-        let machine = self.txpool.machine();
-        let params = machine.params();
+        let params = self.machine.params();
         let cip1559_height = params.transition_heights.cip1559;
         let pack_height = best_info.best_epoch_number + 1;
 

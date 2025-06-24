@@ -173,7 +173,7 @@ pub struct TransactionPool {
     verification_config: VerificationConfig,
     inner: RwLock<TransactionPoolInner>,
     to_propagate_trans: Arc<RwLock<HashMap<H256, Arc<SignedTransaction>>>>,
-    pub data_man: Arc<BlockDataManager>,
+    data_man: Arc<BlockDataManager>,
     best_executed_state: Mutex<Arc<State>>,
     consensus_best_info: Mutex<Arc<BestInformation>>,
     set_tx_requests: Mutex<Vec<Arc<SignedTransaction>>>,
@@ -244,8 +244,6 @@ impl TransactionPool {
             ready_for_mining: AtomicBool::new(false),
         }
     }
-
-    pub fn machine(&self) -> Arc<Machine> { self.machine.clone() }
 
     pub fn get_transaction(
         &self, tx_hash: &H256,

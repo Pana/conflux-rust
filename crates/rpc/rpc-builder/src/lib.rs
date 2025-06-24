@@ -37,6 +37,7 @@ pub use id_provider::EthSubscriptionIdProvider;
 use log::debug;
 pub use module::{EthRpcModule, RpcModuleSelection};
 
+use cfx_executor::spec::CommonParams;
 use cfx_rpc::{helpers::ChainInfo, *};
 use cfx_rpc_cfx_types::RpcImplConfiguration;
 use cfx_rpc_eth_api::*;
@@ -77,6 +78,7 @@ pub struct RpcModuleBuilder {
     tx_pool: SharedTransactionPool,
     executor: TaskExecutor,
     notifications: Arc<Notifications>,
+    machine_params: CommonParams,
 }
 
 impl RpcModuleBuilder {
@@ -84,6 +86,7 @@ impl RpcModuleBuilder {
         config: RpcImplConfiguration, consensus: SharedConsensusGraph,
         sync: SharedSynchronizationService, tx_pool: SharedTransactionPool,
         executor: TaskExecutor, notifications: Arc<Notifications>,
+        machine_params: CommonParams,
     ) -> Self {
         Self {
             config,
@@ -92,6 +95,7 @@ impl RpcModuleBuilder {
             tx_pool,
             executor,
             notifications,
+            machine_params,
         }
     }
 
@@ -113,6 +117,7 @@ impl RpcModuleBuilder {
                 tx_pool,
                 executor,
                 notifications,
+                machine_params,
             } = self;
 
             let mut registry = RpcRegistryInner::new(
@@ -122,6 +127,7 @@ impl RpcModuleBuilder {
                 tx_pool,
                 executor,
                 notifications,
+                machine_params,
             );
 
             modules.config = module_config;
@@ -143,6 +149,7 @@ pub struct RpcRegistryInner {
     modules: HashMap<EthRpcModule, Methods>,
     executor: TaskExecutor,
     notifications: Arc<Notifications>,
+    machine_params: CommonParams,
 }
 
 impl RpcRegistryInner {
@@ -150,6 +157,7 @@ impl RpcRegistryInner {
         config: RpcImplConfiguration, consensus: SharedConsensusGraph,
         sync: SharedSynchronizationService, tx_pool: SharedTransactionPool,
         executor: TaskExecutor, notifications: Arc<Notifications>,
+        machine_params: CommonParams,
     ) -> Self {
         Self {
             consensus,
@@ -159,6 +167,7 @@ impl RpcRegistryInner {
             modules: Default::default(),
             executor,
             notifications,
+            machine_params,
         }
     }
 
@@ -249,6 +258,7 @@ impl RpcRegistryInner {
                             self.sync.clone(),
                             self.tx_pool.clone(),
                             self.executor.clone(),
+                            self.machine_params.clone(),
                         )
                         .into_rpc();
                         if self.config.poll_lifetime_in_seconds.is_some() {
@@ -287,6 +297,7 @@ impl RpcRegistryInner {
                             self.sync.clone(),
                             self.tx_pool.clone(),
                             self.executor.clone(),
+                            self.machine_params.clone(),
                         );
                         ParityApi::new(eth_api).into_rpc().into()
                     }

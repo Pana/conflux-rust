@@ -191,9 +191,8 @@ impl ConsensusExecutor {
         consensus_inner: Arc<RwLock<ConsensusGraphInner>>,
         config: ConsensusExecutionConfiguration,
         verification_config: VerificationConfig, bench_mode: bool,
-        pos_verifier: Arc<PosVerifier>,
+        pos_verifier: Arc<PosVerifier>, machine: Arc<Machine>,
     ) -> Arc<Self> {
-        let machine = tx_pool.machine();
         let handler = Arc::new(ConsensusExecutionHandler::new(
             tx_pool,
             data_man.clone(),

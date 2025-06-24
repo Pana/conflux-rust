@@ -28,7 +28,7 @@ use crate::{
     NodeType, Notifications,
 };
 
-use cfx_executor::spec::CommonParams;
+use cfx_executor::{machine::Machine, spec::CommonParams};
 
 use super::config::ConsensusConfig;
 
@@ -101,7 +101,7 @@ impl ConsensusGraph {
         execution_conf: ConsensusExecutionConfiguration,
         verification_config: VerificationConfig, node_type: NodeType,
         pos_verifier: Arc<PosVerifier>, pivot_hint: Option<Arc<PivotHint>>,
-        params: CommonParams,
+        machine: Arc<Machine>,
     ) -> Self {
         let inner =
             Arc::new(RwLock::new(ConsensusGraphInner::with_era_genesis(
@@ -121,6 +121,7 @@ impl ConsensusGraph {
             verification_config,
             conf.bench_mode,
             pos_verifier.clone(),
+            machine.clone(),
         );
         let confirmation_meter = ConfirmationMeter::new();
 
@@ -146,7 +147,7 @@ impl ConsensusGraph {
             ready_for_mining: AtomicBool::new(false),
             synced_epoch_id: Default::default(),
             config: conf,
-            params,
+            params: machine.params().clone(),
         };
         graph.update_best_info(false /* ready_for_mining */);
         graph
@@ -168,7 +169,7 @@ impl ConsensusGraph {
         execution_conf: ConsensusExecutionConfiguration,
         verification_conf: VerificationConfig, node_type: NodeType,
         pos_verifier: Arc<PosVerifier>, pivot_hint: Option<Arc<PivotHint>>,
-        params: CommonParams,
+        machine: Arc<Machine>,
     ) -> Self {
         let genesis_hash = data_man.get_cur_consensus_era_genesis_hash();
         let stable_hash = data_man.get_cur_consensus_era_stable_hash();
@@ -187,7 +188,7 @@ impl ConsensusGraph {
             node_type,
             pos_verifier,
             pivot_hint,
-            params,
+            machine,
         )
     }
 

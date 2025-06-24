@@ -18,3 +18,4 @@ primitives = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 txgen = { workspace = true }
+cfx-executor = { workspace = true }

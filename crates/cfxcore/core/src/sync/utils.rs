@@ -283,7 +283,7 @@ pub fn initialize_synchronization_graph_with_data_manager(
         NodeType::Archive,
         pos_verifier.clone(),
         /* pivot_hint */ None,
-        params,
+        machine.clone(),
     ));
 
     let sync = Arc::new(SynchronizationGraph::new(

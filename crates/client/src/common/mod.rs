@@ -406,7 +406,7 @@ pub fn initialize_common_modules(
         node_type,
         pos_verifier.clone(),
         pivot_hint,
-        conf.common_params(),
+        machine.clone(),
     ));
 
     for terminal in data_man
@@ -509,7 +509,7 @@ pub fn initialize_not_light_node_modules(
     String,
 > {
     let (
-        _machine,
+        machine,
         secret_store,
         genesis_accounts,
         data_man,
@@ -615,6 +615,8 @@ pub fn initialize_not_light_node_modules(
         pow.clone(),
         maybe_author.clone().unwrap_or_default(),
         pos_verifier.clone(),
+        data_man.clone(),
+        machine.clone(),
     ));
     if conf.is_dev_mode() {
         // If `dev_block_interval_ms` is None, blocks are generated after
@@ -654,6 +656,7 @@ pub fn initialize_not_light_node_modules(
         maybe_direct_txgen,
         conf.rpc_impl_config(),
         accounts,
+        machine.params().clone(),
     ));
 
     let task_manager = TaskManager::new(tokio_runtime.handle().clone());
@@ -728,6 +731,7 @@ pub fn initialize_not_light_node_modules(
             notifications.clone(),
             task_executor.clone(),
             conf,
+            machine.params().clone(),
         ))?;
 
     metrics::initialize(conf.metrics_config(), task_executor.clone());
