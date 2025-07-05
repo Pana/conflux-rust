@@ -322,7 +322,8 @@ hyper-util = "0.1.8"
 async-trait = "0.1"
 tower = "0.4"
 pin-project = "1.0.12"
-mio = "0.6.8"
+mio = "1.0.4"
+mio_channel = "0.2.0"
 reqwest = "0.12"
 
 # crypto & hash

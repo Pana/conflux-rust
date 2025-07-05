@@ -4688,7 +4688,8 @@ dependencies = [
  "lazycell",
  "log",
  "metrics",
- "mio 0.6.23",
+ "mio 1.0.4",
+ "mio_channel",
  "parking_lot 0.12.1",
  "slab",
 ]
@@ -5559,14 +5560,14 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.0.2"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80e04d1dcff3aae0704555fe5fee3bcfaf3d1fdf8a7e521d5b9d2b42acb52cec"
+checksum = "78bed444cc8a2160f01cbcf811ef18cac863ad68ae8ca62092e8db51d51c761c"
 dependencies = [
- "hermit-abi 0.3.9",
  "libc",
+ "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5579,6 +5580,15 @@ dependencies = [
  "log",
  "mio 0.6.23",
  "slab",
+]
+
+[[package]]
+name = "mio_channel"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb1b1e4610c2e54ac340ef82b9c79982cea6b22c8b56035f205bbf50a4c86837"
+dependencies = [
+ "mio 1.0.4",
 ]
 
 [[package]]
@@ -5703,7 +5713,7 @@ dependencies = [
  "log",
  "malloc_size_of",
  "metrics",
- "mio 0.6.23",
+ "mio 1.0.4",
  "natpmp",
  "parity-path",
  "parking_lot 0.12.1",
@@ -8711,7 +8721,7 @@ dependencies = [
  "backtrace",
  "bytes 1.9.0",
  "libc",
- "mio 1.0.2",
+ "mio 1.0.4",
  "parking_lot 0.12.1",
  "pin-project-lite",
  "signal-hook-registry",

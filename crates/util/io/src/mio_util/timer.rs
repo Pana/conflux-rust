@@ -2,13 +2,13 @@
 use super::convert;
 use lazycell::LazyCell;
 use log::trace;
-use mio::{Evented, Poll, PollOpt, Ready, Registration, SetReadiness, Token};
+use mio::{event::Source, Interest, Registry, Token, Waker};
 use slab::Slab;
 use std::{
     cmp, fmt, io, iter,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -69,8 +69,7 @@ pub struct Timeout {
 }
 
 struct Inner {
-    registration: Registration,
-    set_readiness: SetReadiness,
+    waker: Arc<Mutex<Option<Waker>>>,
     wakeup_state: WakeupState,
     wakeup_thread: thread::JoinHandle<()>,
 }
@@ -325,7 +324,7 @@ impl<T> Timer<T> {
         // No more timeouts to poll
         if let Some(inner) = self.inner.borrow() {
             trace!("unsetting readiness");
-            let _ = inner.set_readiness.set_readiness(Ready::empty());
+            // let _ = inner.set_readiness.set_readiness(Ready::empty());
 
             if let Some(tick) = self.next_tick() {
                 self.schedule_readiness(tick);
@@ -417,9 +416,9 @@ impl<T> Default for Timer<T> {
     fn default() -> Timer<T> { Builder::default().build() }
 }
 
-impl<T> Evented for Timer<T> {
+impl<T> Source for Timer<T> {
     fn register(
-        &self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt,
+        &mut self, registry: &Registry, token: Token, interest: Interest,
     ) -> io::Result<()> {
         if self.inner.borrow().is_some() {
             return Err(io::Error::new(
@@ -428,20 +427,19 @@ impl<T> Evented for Timer<T> {
             ));
         }
 
-        let (registration, set_readiness) = Registration::new2();
-        poll.register(&registration, token, interest, opts)?;
+        let waker = Arc::new(Mutex::new(Some(Waker::new(registry, token)?)));
+
         let wakeup_state = Arc::new(AtomicUsize::new(usize::MAX));
         let thread_handle = spawn_wakeup_thread(
             Arc::clone(&wakeup_state),
-            set_readiness.clone(),
+            waker.clone(),
             self.start,
             self.tick_ms,
         );
 
         self.inner
             .fill(Inner {
-                registration,
-                set_readiness,
+                waker,
                 wakeup_state,
                 wakeup_thread: thread_handle,
             })
@@ -455,11 +453,13 @@ impl<T> Evented for Timer<T> {
     }
 
     fn reregister(
-        &self, poll: &Poll, token: Token, interest: Ready, opts: PollOpt,
+        &mut self, registry: &Registry, token: Token, interest: Interest,
     ) -> io::Result<()> {
         match self.inner.borrow() {
             Some(inner) => {
-                poll.reregister(&inner.registration, token, interest, opts)
+                let mut waker = inner.waker.lock().unwrap();
+                *waker = Some(Waker::new(registry, token)?);
+                Ok(())
             }
             None => Err(io::Error::new(
                 io::ErrorKind::Other,
@@ -468,9 +468,13 @@ impl<T> Evented for Timer<T> {
         }
     }
 
-    fn deregister(&self, poll: &Poll) -> io::Result<()> {
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
         match self.inner.borrow() {
-            Some(inner) => poll.deregister(&inner.registration),
+            Some(inner) => {
+                let mut waker = inner.waker.lock().unwrap();
+                *waker = None;
+                Ok(())
+            }
             None => Err(io::Error::new(
                 io::ErrorKind::Other,
                 "receiver not registered",
@@ -482,14 +486,13 @@ impl<T> Evented for Timer<T> {
 impl fmt::Debug for Inner {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Inner")
-            .field("registration", &self.registration)
             .field("wakeup_state", &self.wakeup_state.load(Ordering::Relaxed))
             .finish()
     }
 }
 
 fn spawn_wakeup_thread(
-    state: WakeupState, set_readiness: SetReadiness, start: Instant,
+    state: WakeupState, waker: Arc<Mutex<Option<Waker>>>, start: Instant,
     tick_ms: u64,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -545,7 +548,9 @@ fn spawn_wakeup_thread(
 
                 if actual == sleep_until_tick {
                     trace!("setting readiness from wakeup thread");
-                    let _ = set_readiness.set_readiness(Ready::readable());
+                    if let Some(w) = &mut *waker.lock().unwrap() {
+                        let _ = w.wake();
+                    }
                     sleep_until_tick = usize::MAX as Tick;
                 } else {
                     sleep_until_tick = actual as Tick;

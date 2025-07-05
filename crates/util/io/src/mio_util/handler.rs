@@ -1,5 +1,5 @@
 use super::EventLoop;
-use mio::{Ready, Token};
+use mio::Token;
 
 #[allow(unused_variables)]
 pub trait Handler: Sized {
@@ -16,11 +16,7 @@ pub trait Handler: Sized {
     ///
     /// This function will only be invoked a single time per socket per event
     /// loop tick.
-    fn ready(
-        &mut self, event_loop: &mut EventLoop<Self>, token: Token,
-        events: Ready,
-    ) {
-    }
+    fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token) {}
 
     /// Invoked when a message has been received via the event loop's channel.
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: Self::Message) {

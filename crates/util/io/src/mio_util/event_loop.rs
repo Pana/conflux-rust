@@ -4,7 +4,10 @@ use super::{
     Handler, NotifyError,
 };
 use log::trace;
-use mio::{event::Evented, Event, Events, Poll, PollOpt, Ready, Token};
+use mio::{
+    event::{Event, Events, Source},
+    Interest, Poll, Token,
+};
 use std::{default::Default, fmt, io, time::Duration, usize};
 
 #[derive(Debug, Default, Clone)]
@@ -109,23 +112,20 @@ impl<H: Handler> EventLoop<H> {
         // Create the IO poller
         let poll = Poll::new()?;
 
-        let timer = TimerBuilder::default()
+        let mut timer = TimerBuilder::default()
             .tick_duration(config.timer_tick)
             .num_slots(config.timer_wheel_size)
             .capacity(config.timer_capacity)
             .build();
 
         // Create cross thread notification queue
-        let (tx, rx) = channel::sync_channel(config.notify_capacity);
+        let (mut tx, mut rx) = channel::sync_channel(config.notify_capacity);
 
         // Register the notification wakeup FD with the IO poller
-        poll.register(
-            &rx,
-            NOTIFY,
-            Ready::readable(),
-            PollOpt::edge() | PollOpt::oneshot(),
-        )?;
-        poll.register(&timer, TIMER, Ready::readable(), PollOpt::edge())?;
+        poll.registry()
+            .register(&mut rx, NOTIFY, Interest::READABLE)?;
+        poll.registry()
+            .register(&mut timer, TIMER, Interest::READABLE)?;
 
         Ok(EventLoop {
             run: true,
@@ -190,18 +190,18 @@ impl<H: Handler> EventLoop<H> {
 
     /// Registers an IO handle with the event loop.
     pub fn register<E: ?Sized>(
-        &mut self, io: &E, token: Token, interest: Ready, opt: PollOpt,
+        &mut self, io: &mut E, token: Token, interest: Interest,
     ) -> io::Result<()>
-    where E: Evented {
-        self.poll.register(io, token, interest, opt)
+    where E: Source {
+        self.poll.registry().register(io, token, interest)
     }
 
     /// Re-Registers an IO handle with the event loop.
     pub fn reregister<E: ?Sized>(
-        &mut self, io: &E, token: Token, interest: Ready, opt: PollOpt,
+        &mut self, io: &mut E, token: Token, interest: Interest,
     ) -> io::Result<()>
-    where E: Evented {
-        self.poll.reregister(io, token, interest, opt)
+    where E: Source {
+        self.poll.registry().reregister(io, token, interest)
     }
 
     /// Keep spinning the event loop indefinitely, and notify the handler
@@ -226,9 +226,9 @@ impl<H: Handler> EventLoop<H> {
     /// Warning: kqueue effectively builds in deregister when using
     /// edge-triggered mode with oneshot. Calling `deregister()` on the
     /// socket will cause a TcpStream error.
-    pub fn deregister<E: ?Sized>(&mut self, io: &E) -> io::Result<()>
-    where E: Evented {
-        self.poll.deregister(io)
+    pub fn deregister<E: ?Sized>(&mut self, io: &mut E) -> io::Result<()>
+    where E: Source {
+        self.poll.registry().deregister(io)
     }
 
     /// Spin the event loop once, with a given timeout (forever if `None`),
@@ -247,50 +247,46 @@ impl<H: Handler> EventLoop<H> {
             Err(err) => {
                 if err.kind() == io::ErrorKind::Interrupted {
                     handler.interrupted(self);
-                    0
+                    return Ok(());
                 } else {
                     return Err(err);
                 }
             }
         };
 
-        self.io_process(handler, events);
+        self.io_process(handler);
         handler.tick(self);
         Ok(())
     }
 
     #[inline]
-    fn io_poll(&mut self, timeout: Option<Duration>) -> io::Result<usize> {
+    fn io_poll(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         self.poll.poll(&mut self.events, timeout)
     }
 
     // Process IO events that have been previously polled
-    fn io_process(&mut self, handler: &mut H, cnt: usize) {
-        let mut i = 0;
-
-        trace!("io_process(..); cnt={}; len={}", cnt, self.events.len());
+    fn io_process(&mut self, handler: &mut H) {
+        trace!("io_process(..);");
 
         // Iterate over the notifications. Each event provides the token
         // it was registered with (which usually represents, at least, the
         // handle that the event is about) as well as information about
         // what kind of event occurred (readable, writable, signal, etc.)
-        while i < cnt {
-            let evt = self.events.get(i).unwrap();
 
-            trace!("event={:?}; idx={:?}", evt, i);
+        let events: Vec<Event> =
+            self.events.iter().map(|e| e.clone()).collect();
 
+        for evt in events {
             match evt.token() {
                 NOTIFY => self.notify(handler),
                 TIMER => self.timer_process(handler),
-                _ => self.io_event(handler, evt),
+                _ => self.io_event(handler, evt.clone()),
             }
-
-            i += 1;
         }
     }
 
     fn io_event(&mut self, handler: &mut H, evt: Event) {
-        handler.ready(self, evt.token(), evt.readiness());
+        handler.ready(self, evt.token());
     }
 
     fn notify(&mut self, handler: &mut H) {
@@ -302,11 +298,10 @@ impl<H: Handler> EventLoop<H> {
         }
 
         // Re-register
-        let _ = self.poll.reregister(
-            &self.notify_rx,
+        let _ = self.poll.registry().reregister(
+            &mut self.notify_rx,
             NOTIFY,
-            Ready::readable(),
-            PollOpt::edge() | PollOpt::oneshot(),
+            Interest::READABLE,
         );
     }
 
@@ -350,7 +345,9 @@ impl<M> Sender<M> {
     fn new(tx: channel::SyncSender<M>) -> Sender<M> { Sender { tx } }
 
     pub fn send(&self, msg: M) -> Result<(), NotifyError<M>> {
-        self.tx.try_send(msg)?;
+        self.tx
+            .try_send(msg)
+            .map_err(|e| NotifyError::from(channel::TrySendError::from(e)))?;
         Ok(())
     }
 }

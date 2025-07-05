@@ -1,5 +1,5 @@
 #![allow(unused)]
-mod channel;
+mod channel_error;
 mod event_loop;
 mod handler;
 mod io;
@@ -9,6 +9,11 @@ pub mod timer;
 pub use event_loop::{EventLoop, EventLoopBuilder, Sender};
 pub use handler::Handler;
 pub use notify::NotifyError;
+
+mod channel {
+    pub use super::channel_error::*;
+    pub use mio_channel::*;
+}
 
 mod convert {
     use std::time::Duration;

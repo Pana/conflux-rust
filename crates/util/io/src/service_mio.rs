@@ -26,7 +26,7 @@ use crate::{
 use lazy_static::lazy_static;
 use log::{debug, error, trace, warn};
 use metrics::{register_meter_with_group, Meter, MeterTimer};
-use mio::{Events, Poll, PollOpt, Ready, Registration, SetReadiness, Token};
+use mio::{event::Events, Poll, Token};
 use parking_lot::{Mutex, RwLock};
 use slab::Slab;
 use std::{
@@ -614,7 +614,7 @@ where Message: Send + Sync + 'static
     host_channel: Mutex<Sender<IoMessage<Message>>>,
     handlers: Arc<RwLock<Slab<Arc<dyn IoHandler<Message>>>>>,
     network_poll_thread: Mutex<Option<JoinHandle<()>>>,
-    network_poll_stopped: Arc<(Registration, SetReadiness)>,
+    // network_poll_stopped: Arc<(Registration, SetReadiness)>,
 }
 
 impl<Message> IoService<Message>
@@ -645,7 +645,7 @@ where Message: Send + Sync + 'static
             host_channel: Mutex::new(channel),
             handlers,
             network_poll_thread: Mutex::new(None),
-            network_poll_stopped: Arc::new(Registration::new2()),
+            // network_poll_stopped: Arc::new(Registration::new2()),
         })
     }
 
@@ -653,10 +653,10 @@ where Message: Send + Sync + 'static
         debug!("[IoService] Closing...");
         // Network poll should be closed before the main EventLoop, otherwise it
         // will send messages to a closed EventLoop.
-        self.network_poll_stopped
-            .1
-            .set_readiness(Ready::readable())
-            .expect("Set network_poll_stopped readiness failure");
+        // self.network_poll_stopped
+        //     .1
+        //     .set_readiness(Ready::readable())
+        //     .expect("Set network_poll_stopped readiness failure");
         if let Some(thread) = self.network_poll_thread.lock().take() {
             thread.join().unwrap_or_else(|e| match e.downcast_ref::<&'static str>() {
                 Some(e) => error!("Error joining network poll thread: {}", e),
@@ -684,34 +684,35 @@ where Message: Send + Sync + 'static
         main_event_loop_channel: IoChannel<Message>, max_sessions: usize,
         stop_token: usize,
     ) {
-        network_poll
-            .register(
-                &self.network_poll_stopped.0,
-                Token(stop_token),
-                Ready::readable(),
-                PollOpt::edge(),
-            )
-            .expect("network_poll register failure");
+        // network_poll
+        //     .register(
+        //         &self.network_poll_stopped.0,
+        //         Token(stop_token),
+        //         Ready::readable(),
+        //         PollOpt::edge(),
+        //     )
+        //     .expect("network_poll register failure");
         let thread = thread::Builder::new()
             .name("network_eventloop".into())
             .spawn(move || {
                 let mut events = Events::with_capacity(max_sessions);
                 loop {
-                    network_poll
-                        .poll(&mut events, None)
-                        .expect("Network poll failure");
+                    // TODO
+                    // network_poll
+                    //     .poll(&mut events, None)
+                    //     .expect("Network poll failure");
                     let _timer =
                         MeterTimer::time_func(NET_POLL_THREAD_TIMER.as_ref());
                     for event in &events {
                         // IoService is dropped and we should stop this thread
                         if event.token().0 == stop_token {
-                            assert!(event.readiness().is_readable());
+                            assert!(event.is_readable());
                             return;
                         }
 
                         let handler_id = 0;
                         let token_id = event.token().0 % TOKENS_PER_HANDLER;
-                        if event.readiness().is_readable() {
+                        if event.is_readable() {
                             handler.stream_readable(
                                 &IoContext::new(
                                     main_event_loop_channel.clone(),
@@ -720,7 +721,7 @@ where Message: Send + Sync + 'static
                                 token_id,
                             );
                         }
-                        if event.readiness().is_writable() {
+                        if event.is_writable() {
                             handler.stream_writable(
                                 &IoContext::new(
                                     main_event_loop_channel.clone(),
@@ -729,7 +730,8 @@ where Message: Send + Sync + 'static
                                 token_id,
                             );
                         }
-                        if event.readiness().is_hup() {
+                        if event.is_read_closed() && event.is_write_closed() {
+                            // TODO check here
                             handler.stream_hup(
                                 &IoContext::new(
                                     main_event_loop_channel.clone(),
