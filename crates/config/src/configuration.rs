@@ -190,6 +190,7 @@ build_config! {
         (base_fee_burn_transition_number, (Option<u64>), Some(14400))
         (base_fee_burn_transition_height, (Option<u64>), Some(7200))
         (cip1559_transition_height, (Option<u64>), None)
+        (cip130_transition_height, (Option<u64>), None)
         (cancun_opcodes_transition_number, (Option<u64>), None)
         (min_native_base_price, (Option<u64>), None)
         (min_eth_base_price, (Option<u64>), None)
@@ -1510,7 +1511,7 @@ impl Configuration {
         );
         set_conf!(
             self.raw_conf.base_fee_burn_transition_height.unwrap_or(default_transition_time);
-            params.transition_heights => { cip130, cip133e }
+            params.transition_heights => { cip133e }
         );
         // TODO: disable 1559 test during dev
         params.transition_heights.cip1559 = self
@@ -1518,6 +1519,11 @@ impl Configuration {
             .cip1559_transition_height
             .or(self.raw_conf.base_fee_burn_transition_height)
             .unwrap_or(non_genesis_default_transition_time);
+        params.transition_heights.cip130 = self
+            .raw_conf
+            .cip130_transition_height
+            .or(self.raw_conf.base_fee_burn_transition_height)
+            .unwrap_or(default_transition_time);
         params.transition_numbers.cancun_opcodes = self
             .raw_conf
             .cancun_opcodes_transition_number
