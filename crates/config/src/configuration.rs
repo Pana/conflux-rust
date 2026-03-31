@@ -205,9 +205,8 @@ build_config! {
         (align_evm_transition_height, (u64), u64::MAX)
         // V3.1
         (cip166_transition_height, (Option<u64>), None)
+        (eip8024_transition_height, (Option<u64>), None)
         (osaka_opcode_transition_height, (Option<u64>), None)
-
-
 
         // Mining section.
         (mining_author, (Option<String>), None)
@@ -1566,10 +1565,13 @@ impl Configuration {
         // hardfork (V3.1)
         set_conf!(
             self.raw_conf.osaka_opcode_transition_height.unwrap_or(default_transition_time);
-            params.transition_heights => { cip166 }
+            params.transition_heights => { cip166, eip8024 }
         );
         if let Some(x) = self.raw_conf.cip166_transition_height {
             params.transition_heights.cip166 = x;
+        }
+        if let Some(x) = self.raw_conf.eip8024_transition_height {
+            params.transition_heights.eip8024 = x;
         }
     }
 }

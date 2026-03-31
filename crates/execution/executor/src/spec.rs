@@ -160,6 +160,8 @@ pub struct TransitionsEpochHeight {
     pub cip145_fix: BlockHeight,
     /// EIP-7939: Count Leading Zeros Instruction
     pub cip166: BlockHeight,
+    /// EIP-8024: SWAPN, DUPN, EXCHANGE opcodes
+    pub eip8024: BlockHeight,
 }
 
 impl Default for CommonParams {

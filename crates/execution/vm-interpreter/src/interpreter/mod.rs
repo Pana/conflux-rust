@@ -705,6 +705,15 @@ impl<Cost: CostType, const CANCUN: bool> Interpreter<Cost, CANCUN> {
                     context.transient_set_storage(key, val)?;
                 }
             }
+            instructions::DUPN => {
+                todo!()
+            }
+            instructions::SWAPN => {
+                todo!()
+            }
+            instructions::EXCHANGE => {
+                todo!()
+            }
             instructions::CREATE | instructions::CREATE2 => {
                 let endowment = self.stack.pop_back();
                 let init_off = self.stack.pop_back();

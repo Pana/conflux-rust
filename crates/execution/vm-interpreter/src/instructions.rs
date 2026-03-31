@@ -346,6 +346,13 @@ enum_with_from_u8! {
         #[doc = "Makes a log entry, 4 topics."]
         LOG4 = 0xa4,
 
+        #[doc = "The nth stack item is duplicated at the top of the stack"]
+        DUPN = 0xe6,
+        #[doc = "The n + 1 th stack item is swapped with the top of the stack"]
+        SWAPN = 0xe7,
+        #[doc = "The n + 1th stack item is swapped with the m + 1th stack item"]
+        EXCHANGE = 0xe8,
+
         #[doc = "create a new account with associated code"]
         CREATE = 0xf0,
         #[doc = "message-call into an account"]
@@ -432,16 +439,16 @@ impl Instruction {
 
     /// Returns the instruction info.
     pub fn info<const CANCUN: bool>(
-        &self, cip645: bool, eip7939: bool,
+        &self, cip645: bool, osaka_opcodes: bool,
     ) -> &InstructionInfo {
         let instrs = if !CANCUN {
             &*INSTRUCTIONS
         } else if !cip645 {
             &*INSTRUCTIONS_CANCUN
-        } else if !eip7939 {
+        } else if !osaka_opcodes {
             &*INSTRUCTIONS_CIP645
         } else {
-            &*INSTRUCTIONS_EIP7939
+            &*INSTRUCTIONS_OSAKA
         };
 
         instrs[*self as usize].as_ref().expect("A instruction is defined in Instruction enum, but it is not found in InstructionInfo struct; this indicates a logic failure in the code.")
@@ -682,9 +689,12 @@ lazy_static! {
         arr
     };
 
-    pub static ref INSTRUCTIONS_EIP7939: [Option<InstructionInfo>; 0x100] = {
+    pub static ref INSTRUCTIONS_OSAKA: [Option<InstructionInfo>; 0x100] = {
         let mut arr = *INSTRUCTIONS_CIP645;
         arr[CLZ as usize] = Some(InstructionInfo::new("CLZ", 1, 1, GasPriceTier::Low));
+        arr[DUPN as usize] = Some(InstructionInfo::new("DUPN", 0, 1, GasPriceTier::Low)); // todo check the gas price tier
+        arr[SWAPN as usize] = Some(InstructionInfo::new("SWAPN", 0, 0, GasPriceTier::Low));
+        arr[EXCHANGE as usize] = Some(InstructionInfo::new("EXCHANGE", 0, 0, GasPriceTier::Low));
 
         arr
     };
