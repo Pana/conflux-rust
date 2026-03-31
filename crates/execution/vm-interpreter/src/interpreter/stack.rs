@@ -27,6 +27,8 @@ pub trait Stack<T> {
     fn peek(&self, no_from_top: usize) -> &T;
     /// Swaps Stack[len(Stack)] and Stack[len(Stack) - no_from_top]
     fn swap_with_top(&mut self, no_from_top: usize);
+    /// Swaps Stack[len(Stack) - a - 1] and Stack[len(Stack) - b - 1]
+    fn swap(&mut self, a: usize, b: usize);
     /// Returns true if Stack has at least `no_of_elems` elements
     fn has(&self, no_of_elems: usize) -> bool;
     /// Get element from top and remove it from Stack. Panics if stack is empty.
@@ -67,6 +69,11 @@ impl<S: fmt::Display> Stack<S> for VecStack<S> {
     fn swap_with_top(&mut self, no_from_top: usize) {
         let len = self.stack.len();
         self.stack.swap(len - no_from_top - 1, len - 1);
+    }
+
+    fn swap(&mut self, a: usize, b: usize) {
+        let len = self.stack.len();
+        self.stack.swap(len - a - 1, len - b - 1);
     }
 
     fn has(&self, no_of_elems: usize) -> bool {

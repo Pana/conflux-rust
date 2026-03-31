@@ -30,6 +30,7 @@ mod gasometer;
 mod memory;
 mod shared_cache;
 mod stack;
+mod util;
 
 pub use self::shared_cache::SharedCache;
 use self::{
@@ -706,13 +707,32 @@ impl<Cost: CostType, const CANCUN: bool> Interpreter<Cost, CANCUN> {
                 }
             }
             instructions::DUPN => {
-                todo!()
+                let byte = self.reader.read(1).low_u64() as usize;
+                let n = util::decode_single(byte).ok_or(
+                    vm::Error::BadInstruction { // TODO check the error type is appropriate
+                        instruction: byte as u8,
+                    },
+                )?;
+                let val = self.stack.peek(n).clone();
+                self.stack.push(val);
             }
             instructions::SWAPN => {
-                todo!()
+                let byte = self.reader.read(1).low_u64() as usize;
+                let n = util::decode_single(byte).ok_or(
+                    vm::Error::BadInstruction {
+                        instruction: byte as u8,
+                    },
+                )?;
+                self.stack.swap_with_top(n);
             }
             instructions::EXCHANGE => {
-                todo!()
+                let byte = self.reader.read(1).low_u64() as usize;
+                let (n, m) = util::decode_pair(byte).ok_or(
+                    vm::Error::BadInstruction {
+                        instruction: byte as u8,
+                    },
+                )?;
+                self.stack.swap(n, m);
             }
             instructions::CREATE | instructions::CREATE2 => {
                 let endowment = self.stack.pop_back();

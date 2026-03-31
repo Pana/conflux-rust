@@ -692,7 +692,7 @@ lazy_static! {
     pub static ref INSTRUCTIONS_OSAKA: [Option<InstructionInfo>; 0x100] = {
         let mut arr = *INSTRUCTIONS_CIP645;
         arr[CLZ as usize] = Some(InstructionInfo::new("CLZ", 1, 1, GasPriceTier::Low));
-        arr[DUPN as usize] = Some(InstructionInfo::new("DUPN", 0, 1, GasPriceTier::Low)); // todo check the gas price tier
+        arr[DUPN as usize] = Some(InstructionInfo::new("DUPN", 0, 1, GasPriceTier::Low));
         arr[SWAPN as usize] = Some(InstructionInfo::new("SWAPN", 0, 0, GasPriceTier::Low));
         arr[EXCHANGE as usize] = Some(InstructionInfo::new("EXCHANGE", 0, 0, GasPriceTier::Low));
 
