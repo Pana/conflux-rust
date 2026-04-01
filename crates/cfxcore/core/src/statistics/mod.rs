@@ -88,6 +88,14 @@ impl Statistics {
 
     pub fn log_statistics(&self) {
         let inner = self.inner.read();
-        info!("Statistics: {:?}", *inner);
+        info!(
+            "Statistics: sync_graph(headers: {}, blocks: {}), \
+             consensus_graph(inserted: {}, activated: {}, processed: {})",
+            inner.sync_graph.inserted_header_count,
+            inner.sync_graph.inserted_block_count,
+            inner.consensus_graph.inserted_block_count,
+            inner.consensus_graph.activated_block_count,
+            inner.consensus_graph.processed_block_count,
+        );
     }
 }

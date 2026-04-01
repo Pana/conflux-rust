@@ -41,6 +41,29 @@ pub enum SyncPhaseType {
     Normal = 5,
 }
 
+impl std::fmt::Display for SyncPhaseType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SyncPhaseType::CatchUpRecoverBlockHeaderFromDB => {
+                write!(f, "RecoverHeaderFromDB (1/5)")
+            }
+            SyncPhaseType::CatchUpSyncBlockHeader => {
+                write!(f, "SyncBlockHeader (2/5)")
+            }
+            SyncPhaseType::CatchUpCheckpoint => {
+                write!(f, "SyncCheckpoint (3/5)")
+            }
+            SyncPhaseType::CatchUpFillBlockBodyPhase => {
+                write!(f, "FillBlockBody (4/5)")
+            }
+            SyncPhaseType::CatchUpSyncBlock => {
+                write!(f, "SyncBlock (5/5)")
+            }
+            SyncPhaseType::Normal => write!(f, "Normal"),
+        }
+    }
+}
+
 pub trait SynchronizationPhaseTrait: Send + Sync {
     fn name(&self) -> &'static str;
     fn phase_type(&self) -> SyncPhaseType;
@@ -276,6 +299,9 @@ impl SynchronizationPhaseTrait for CatchUpSyncBlockHeaderPhase {
         sync_handler: &SynchronizationProtocolHandler,
     ) {
         info!("start phase {:?}", self.name());
+        // Reset progress: will be updated by update_sync_phase() with epoch
+        // progress
+        self.graph.sync_progress.reset(0);
         let (_, cur_era_genesis_height) =
             self.graph.get_genesis_hash_and_height_in_current_era();
         *sync_handler.latest_epoch_requested.lock() =
@@ -340,6 +366,8 @@ impl SynchronizationPhaseTrait for CatchUpCheckpointPhase {
         sync_handler: &SynchronizationProtocolHandler,
     ) {
         info!("start phase {:?}", self.name());
+        // Reset progress for checkpoint sync phase
+        sync_handler.graph.sync_progress.reset(0);
         sync_handler.graph.inner.write().locked_for_catchup = true;
         while sync_handler.graph.is_consensus_worker_busy() {
             thread::sleep(time::Duration::from_millis(100));
@@ -476,6 +504,10 @@ impl SynchronizationPhaseTrait for CatchUpFillBlockBodyPhase {
             }
             self.graph.inner.write().block_to_fill_set =
                 self.graph.consensus.get_blocks_needing_bodies();
+            let total_bodies =
+                self.graph.inner.read().block_to_fill_set.len() as u64;
+            self.graph.sync_progress.reset(total_bodies);
+            info!("Need to download {} block bodies", total_bodies);
             sync_handler.request_block_bodies(io);
         }
     }
@@ -533,6 +565,9 @@ impl SynchronizationPhaseTrait for CatchUpSyncBlockPhase {
         sync_handler: &SynchronizationProtocolHandler,
     ) {
         info!("start phase {:?}", self.name());
+        // Reset progress: will be updated by update_sync_phase() with epoch
+        // progress
+        self.graph.sync_progress.reset(0);
         let (_, cur_era_genesis_height) =
             self.graph.get_genesis_hash_and_height_in_current_era();
         *sync_handler.latest_epoch_requested.lock() =

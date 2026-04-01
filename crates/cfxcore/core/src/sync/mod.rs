@@ -20,9 +20,9 @@ pub use self::{
     error::Error,
     state::StateSyncConfiguration,
     synchronization_graph::{
-        SharedSynchronizationGraph, SyncGraphConfig, SyncGraphStatistics,
-        SynchronizationGraph, SynchronizationGraphInner,
-        SynchronizationGraphNode,
+        format_duration, SharedSynchronizationGraph, SyncGraphConfig,
+        SyncGraphStatistics, SyncProgress, SynchronizationGraph,
+        SynchronizationGraphInner, SynchronizationGraphNode,
     },
     synchronization_phases::{
         CatchUpCheckpointPhase, CatchUpFillBlockBodyPhase,

@@ -7,7 +7,7 @@ use std::{
     collections::{BinaryHeap, HashMap, HashSet, VecDeque},
     mem, panic,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     thread,
@@ -54,6 +54,116 @@ lazy_static! {
         register_meter_with_group("timer", "sync::insert_block");
     static ref CONSENSUS_WORKER_QUEUE: Arc<dyn Queue> =
         register_queue("consensus_worker_queue");
+}
+
+/// Tracks progress of sync phases for logging with ETA estimation.
+pub struct SyncProgress {
+    /// Current count of processed items (e.g., recovered headers, filled
+    /// bodies).
+    pub current: AtomicU64,
+    /// Total number of items to process (0 if unknown).
+    pub total: AtomicU64,
+    /// Timestamp (as nanos since UNIX_EPOCH) when the current phase started.
+    phase_start_nanos: AtomicU64,
+    /// The `current` value when we last sampled for rate calculation.
+    last_sample_count: AtomicU64,
+    /// Timestamp (nanos) of the last sample.
+    last_sample_nanos: AtomicU64,
+    /// Smoothed processing rate (items per second * 1000, stored as integer
+    /// for atomic ops). 0 means no rate estimated yet.
+    rate_milli: AtomicU64,
+}
+
+impl SyncProgress {
+    pub fn new() -> Self {
+        SyncProgress {
+            current: AtomicU64::new(0),
+            total: AtomicU64::new(0),
+            phase_start_nanos: AtomicU64::new(0),
+            last_sample_count: AtomicU64::new(0),
+            last_sample_nanos: AtomicU64::new(0),
+            rate_milli: AtomicU64::new(0),
+        }
+    }
+
+    /// Reset progress tracking for a new phase.
+    pub fn reset(&self, total: u64) {
+        let now_nanos = Self::now_nanos();
+        self.current.store(0, Ordering::Relaxed);
+        self.total.store(total, Ordering::Relaxed);
+        self.phase_start_nanos.store(now_nanos, Ordering::Relaxed);
+        self.last_sample_count.store(0, Ordering::Relaxed);
+        self.last_sample_nanos.store(now_nanos, Ordering::Relaxed);
+        self.rate_milli.store(0, Ordering::Relaxed);
+    }
+
+    fn now_nanos() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+    }
+
+    /// Update the rate estimation. Called periodically (e.g., every 5s from
+    /// log timer).
+    pub fn update_rate(&self) {
+        let now = Self::now_nanos();
+        let current = self.current.load(Ordering::Relaxed);
+        let last_count = self.last_sample_count.load(Ordering::Relaxed);
+        let last_nanos = self.last_sample_nanos.load(Ordering::Relaxed);
+
+        if now <= last_nanos {
+            return;
+        }
+        let elapsed_secs = (now - last_nanos) as f64 / 1_000_000_000.0;
+        if elapsed_secs < 1.0 {
+            return;
+        }
+
+        let delta = current.saturating_sub(last_count);
+        let new_rate = delta as f64 / elapsed_secs;
+
+        // Exponential moving average (alpha=0.3 for new, 0.7 for old)
+        let old_rate_milli = self.rate_milli.load(Ordering::Relaxed);
+        let smoothed = if old_rate_milli == 0 {
+            (new_rate * 1000.0) as u64
+        } else {
+            let old_rate = old_rate_milli as f64 / 1000.0;
+            ((0.3 * new_rate + 0.7 * old_rate) * 1000.0) as u64
+        };
+
+        self.rate_milli.store(smoothed, Ordering::Relaxed);
+        self.last_sample_count.store(current, Ordering::Relaxed);
+        self.last_sample_nanos.store(now, Ordering::Relaxed);
+    }
+
+    /// Returns (current, total, rate_per_sec, eta_secs).
+    /// `eta_secs` is None if total is unknown or rate is 0.
+    pub fn snapshot(&self) -> (u64, u64, f64, Option<u64>) {
+        let current = self.current.load(Ordering::Relaxed);
+        let total = self.total.load(Ordering::Relaxed);
+        let rate_milli = self.rate_milli.load(Ordering::Relaxed);
+        let rate = rate_milli as f64 / 1000.0;
+
+        let eta = if total > 0 && rate > 0.0 && current < total {
+            Some(((total - current) as f64 / rate) as u64)
+        } else {
+            None
+        };
+
+        (current, total, rate, eta)
+    }
+}
+
+/// Format seconds into a human-readable duration string.
+pub fn format_duration(secs: u64) -> String {
+    if secs < 60 {
+        format!("{}s", secs)
+    } else if secs < 3600 {
+        format!("{}m {}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+    }
 }
 
 const NULL: usize = !0;
@@ -1034,6 +1144,10 @@ pub struct SynchronizationGraph {
     /// Handle to the consensus worker thread; joined on drop.
     #[allow(unused)]
     consensus_worker_handle: ConsensusWorkerHandle,
+
+    /// Progress tracker for sync phases (header recovery, block body fill,
+    /// etc.)
+    pub sync_progress: Arc<SyncProgress>,
 }
 
 impl MallocSizeOf for SynchronizationGraph {
@@ -1212,6 +1326,7 @@ impl SynchronizationGraph {
             new_block_hashes: notifications.new_block_hashes.clone(),
             machine,
             consensus_worker_handle,
+            sync_progress: Arc::new(SyncProgress::new()),
         };
         sync_graph
     }
@@ -1252,6 +1367,11 @@ impl SynchronizationGraph {
     /// information stored in db.
     pub fn recover_graph_from_db(&self) {
         info!("Start fast recovery of the block DAG from database");
+
+        // Reset progress tracker for header recovery phase.
+        // Total is unknown upfront (BFS discovers blocks dynamically), so we
+        // update it as the visited set grows.
+        self.sync_progress.reset(0);
 
         // Recover the initial sequence number in consensus graph
         // based on the sequence number of genesis block in db.
@@ -1305,6 +1425,7 @@ impl SynchronizationGraph {
         // era but are missed in db. The missed blocks will be fetched from
         // peers.
         let mut missed_hashes = HashSet::new();
+        let mut recovered_count: u64 = 0;
         while let Some(hash) = queue.pop_front() {
             if hash == genesis_hash {
                 // Genesis block is already in consensus graph.
@@ -1349,6 +1470,16 @@ impl SynchronizationGraph {
                         visited_blocks.insert(referee);
                     }
                 }
+                recovered_count += 1;
+                // Update progress: current = recovered so far,
+                // total = recovered + remaining in queue (best estimate).
+                self.sync_progress
+                    .current
+                    .store(recovered_count, Ordering::Relaxed);
+                self.sync_progress.total.store(
+                    recovered_count + queue.len() as u64,
+                    Ordering::Relaxed,
+                );
             } else {
                 missed_hashes.insert(hash);
             }
@@ -1359,7 +1490,11 @@ impl SynchronizationGraph {
             self.inner.read().not_ready_blocks_frontier.get_frontier()
         );
 
-        info!("Finish reconstructing the pivot chain of length {}, start to sync from peers", self.consensus.best_epoch_number());
+        info!(
+            "Finished recovering {} headers from DB, pivot chain length {}, start to sync from peers",
+            recovered_count,
+            self.consensus.best_epoch_number()
+        );
     }
 
     /// Return None if `hash` is not in sync graph

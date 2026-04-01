@@ -1649,12 +1649,81 @@ impl SynchronizationProtocolHandler {
                 need_notify.push(*peer);
             }
         }
-        info!(
-            "Catch-up mode: {}, latest epoch: {} missing_bodies: {}",
-            catch_up_mode,
-            self.graph.consensus.best_epoch_number(),
-            self.graph.inner.read().block_to_fill_set.len()
-        );
+        let current_phase = self.phase_manager.get_current_phase().phase_type();
+        let best_epoch = self.graph.consensus.best_epoch_number();
+
+        if catch_up_mode {
+            // For fill-body phase, update progress based on remaining
+            // block_to_fill_set
+            if current_phase == SyncPhaseType::CatchUpFillBlockBodyPhase {
+                let total = self
+                    .graph
+                    .sync_progress
+                    .total
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let remaining =
+                    self.graph.inner.read().block_to_fill_set.len() as u64;
+                let downloaded = total.saturating_sub(remaining);
+                self.graph
+                    .sync_progress
+                    .current
+                    .store(downloaded, std::sync::atomic::Ordering::Relaxed);
+            }
+
+            // For header-sync and block-sync phases, update progress
+            // based on epoch gap to peer median
+            if current_phase == SyncPhaseType::CatchUpSyncBlockHeader
+                || current_phase == SyncPhaseType::CatchUpSyncBlock
+            {
+                let median =
+                    self.syn.median_epoch_from_normal_peers().unwrap_or(0);
+                if median > 0 {
+                    self.graph.sync_progress.current.store(
+                        best_epoch,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    self.graph
+                        .sync_progress
+                        .total
+                        .store(median, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+
+            // Update rate estimation for progress tracking
+            self.graph.sync_progress.update_rate();
+            let (current, total, rate, eta) =
+                self.graph.sync_progress.snapshot();
+
+            let progress_str = if total > 0 {
+                let pct = if current >= total {
+                    100.0
+                } else {
+                    100.0 * current as f64 / total as f64
+                };
+                format!(
+                    " progress: {}/{} ({:.1}%), rate: {:.0}/s",
+                    current, total, pct, rate
+                )
+            } else if current > 0 {
+                format!(" processed: {}, rate: {:.0}/s", current, rate)
+            } else {
+                String::new()
+            };
+
+            let eta_str = match eta {
+                Some(secs) if secs > 0 => {
+                    format!(", ETA: {}", crate::sync::format_duration(secs))
+                }
+                _ => String::new(),
+            };
+
+            info!(
+                "Sync: phase={}, epoch: {}{}{}",
+                current_phase, best_epoch, progress_str, eta_str,
+            );
+        } else {
+            info!("Sync: phase=Normal, epoch: {}", best_epoch);
+        }
 
         DynamicCapability::NormalPhase(!catch_up_mode)
             .broadcast_with_peers(io, need_notify);
