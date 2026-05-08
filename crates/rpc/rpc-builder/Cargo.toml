@@ -17,9 +17,7 @@ serde = { workspace = true, features = ["derive"]  }
 strum = { workspace = true, features = ["derive"]  }
 alloy-primitives = { workspace = true}
 thiserror = { workspace = true }
-
 jsonrpsee-core = { workspace = true }
-jsonrpsee-types = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server"] }
 rand = { workspace = true }
 cfx-rpc-eth-impl = { workspace = true }
@@ -32,9 +30,6 @@ cfx-rpc-cfx-types = { workspace = true }
 log = { workspace = true }
 cfx-rpc-middlewares = { workspace = true }
 cfx-tasks = { workspace = true }
-tokio = { workspace = true }
-cfx-addr = { workspace = true }
-primitives = { workspace = true }
 network = { workspace = true }
 parking_lot = { workspace = true }
 blockgen = { workspace = true }
