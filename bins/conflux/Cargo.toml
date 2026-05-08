@@ -31,11 +31,6 @@ env_logger = { workspace = true }
 malloc_size_of = { workspace = true }
 diem-crypto = { workspace = true }
 diem-types = { workspace = true }
-pos-ledger-db = { workspace = true }
-executor = { workspace = true }                                           # used by pos-genesis-tool
-storage-interface = { workspace = true }
-bcs = { workspace = true }
-tempfile = { workspace = true }
 parity-version = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 bls-signatures = { workspace = true }

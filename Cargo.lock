@@ -2455,6 +2455,7 @@ version = "3.0.0"
 dependencies = [
  "app_dirs",
  "blockgen",
+ "cfx-bytes",
  "cfx-config",
  "cfx-executor",
  "cfx-mallocator-utils",
@@ -2470,6 +2471,7 @@ dependencies = [
  "cfx-tasks",
  "cfx-types",
  "cfx-util-macros",
+ "cfx-vm-types",
  "cfxcore",
  "cfxcore-accounts",
  "cfxkey",
@@ -2549,7 +2551,6 @@ dependencies = [
 name = "conflux"
 version = "3.0.0"
 dependencies = [
- "bcs",
  "bls-signatures",
  "cfx-execute-helper",
  "cfx-executor",
@@ -2564,7 +2565,6 @@ dependencies = [
  "diem-crypto",
  "diem-types",
  "env_logger",
- "executor",
  "jsonrpsee",
  "libc",
  "log",
@@ -2574,15 +2574,12 @@ dependencies = [
  "network",
  "parity-version",
  "parking_lot 0.12.1",
- "pos-ledger-db",
  "primitives",
  "rand 0.8.5",
  "rlp 0.4.6",
  "rpassword",
  "rustc-hex",
  "serde_json",
- "storage-interface",
- "tempfile",
  "tokio",
 ]
 

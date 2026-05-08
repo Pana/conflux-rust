@@ -49,6 +49,8 @@ cfx-tasks = { workspace = true }
 cfx-config = { workspace = true }
 chrono = { workspace = true }
 cfx-mallocator-utils = { workspace = true }
+cfx-bytes = { workspace = true }
+cfx-vm-types = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
