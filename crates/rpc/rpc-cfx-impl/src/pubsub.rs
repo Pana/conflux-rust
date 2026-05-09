@@ -120,30 +120,37 @@ impl PubSubHandler {
             })
     }
 
-    fn new_logs_stream(
-        &self, filter: LogFilter,
-    ) -> impl Stream<Item = pubsub::Result> {
+    fn handle_logs_subscription(
+        &self, filter: LogFilter, sink: jsonrpsee::server::SubscriptionSink,
+    ) {
         let receiver;
-        let senders = self.log_senders.read();
-        if !senders.contains_key(&filter) {
-            drop(senders);
+        let mut new_sender_created = false;
+
+        {
             let mut senders = self.log_senders.write();
-            let (tx, rx) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
-            senders.insert(filter, tx);
-            receiver = rx;
-        } else {
-            receiver = senders.get(&filter).unwrap().subscribe();
+            let sender = senders
+                .entry(filter.clone())
+                .or_insert_with(|| {
+                    let (tx, _rx) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+                    new_sender_created = true;
+                    tx
+                })
+                .clone();
+
+            receiver = sender.subscribe();
         }
 
-        BroadcastStream::new(receiver)
-            .filter(|item| {
-                let res = match item {
-                    Ok(_) => true,
-                    Err(_) => false,
-                };
-                futures::future::ready(res)
-            })
-            .map(|item| item.expect("should not be an error"))
+        let stream = BroadcastStream::new(receiver)
+            .filter(|item| futures::future::ready(item.is_ok()))
+            .map(|item| item.expect("should not be an error"));
+
+        self.executor.spawn(async move {
+            let _ = pipe_from_stream(sink, stream).await;
+        });
+
+        if new_sender_created {
+            self.start_logs_loop(filter);
+        }
     }
 
     fn start_logs_loop(&self, filter: LogFilter) {
@@ -152,14 +159,20 @@ impl PubSubHandler {
             return;
         }
         loop_started.insert(filter.clone(), true);
+        drop(loop_started);
 
+        let tx = {
+            let senders = self.log_senders.read();
+            senders.get(&filter).expect("sender must exist").clone()
+        };
+
+        // subscribe to the `epochs_ordered` channel
         let mut receiver = self.notifications.epochs_ordered.subscribe();
-        let senders = self.log_senders.read();
-        let tx = senders.get(&filter).unwrap().clone();
 
         // clone everything we use in our async loop
         let loop_started = self.log_loop_started.clone();
         let handler = self.handler.clone();
+        let log_senders = self.log_senders.clone();
 
         // use a queue to make sure we only process an epoch once it has been
         // executed for sure
@@ -181,11 +194,19 @@ impl PubSubHandler {
                 // publish pivot chain reorg if necessary
                 if epoch.0 <= last_epoch {
                     debug!("pivot chain reorg: {} -> {}", last_epoch, epoch.0);
-                    assert!(epoch.0 > 0, "Unexpected epoch number received.");
+                    if epoch.0 == 0 {
+                        error!("Unexpected epoch number 0 received during reorg, skipping");
+                        continue;
+                    }
                     let revert = pubsub::Result::ChainReorg {
                         revert_to: (epoch.0 - 1).into(),
                     };
-                    let _ = tx.send(revert);
+                    let send_res = tx.send(revert);
+                    if send_res.is_err() {
+                        loop_started.write().remove(&filter);
+                        log_senders.write().remove(&filter);
+                        return;
+                    }
                 }
 
                 last_epoch = epoch.0;
@@ -193,8 +214,8 @@ impl PubSubHandler {
                 let send_res =
                     handler.notify_logs(&tx, filter.clone(), epoch).await;
                 if send_res.is_err() {
-                    let mut loop_started = loop_started.write();
-                    loop_started.remove(&filter);
+                    loop_started.write().remove(&filter);
+                    log_senders.write().remove(&filter);
                     return;
                 }
             }
@@ -301,21 +322,13 @@ impl PubSubApiServer for PubSubHandler {
             (Kind::Logs, None) => {
                 let sink = pending.accept().await?;
                 let filter = LogFilter::default();
-                let stream = self.new_logs_stream(filter.clone());
-                self.executor.spawn(async move {
-                    let _ = pipe_from_stream(sink, stream).await;
-                });
-                self.start_logs_loop(filter);
+                self.handle_logs_subscription(filter, sink);
             }
             (Kind::Logs, Some(Params::Logs(filter))) => {
                 let sink = pending.accept().await?;
                 let filter =
                     filter.into_primitive().map_err(|e| e.to_string())?;
-                let stream = self.new_logs_stream(filter.clone());
-                self.executor.spawn(async move {
-                    let _ = pipe_from_stream(sink, stream).await;
-                });
-                self.start_logs_loop(filter);
+                self.handle_logs_subscription(filter, sink);
             }
             (Kind::Logs, _) => {
                 return Err("Expected filter parameter.".into());
@@ -442,7 +455,6 @@ impl ChainNotificationHandler {
         // if these assumptions hold, we will eventually successfully read these
         // execution results, even if they are outdated.
         for ii in 0.. {
-            let latest = self.consensus.best_epoch_number();
             match self.data_man.block_execution_result_by_hash_with_epoch(
                 &block, &pivot, false, /* update_pivot_assumption */
                 false, /* update_cache */
@@ -459,6 +471,7 @@ impl ChainNotificationHandler {
                 error!("Cannot find receipts with {:?}/{:?}", block, pivot);
                 return None;
             } else {
+                let latest = self.consensus.best_epoch_number();
                 if latest
                     > epoch + DEFERRED_STATE_EPOCH_COUNT + REWARD_EPOCH_COUNT
                 {

@@ -79,28 +79,38 @@ impl PubSubApi {
             .map(|item| item.expect("should not be an error"))
     }
 
-    fn new_logs_stream(&self, filter: LogFilter) -> impl Stream<Item = Log> {
+    fn handle_logs_subscription(
+        &self, filter: LogFilter, sink: jsonrpsee::SubscriptionSink,
+    ) {
         let receiver;
-        let senders = self.log_senders.read();
-        if !senders.contains_key(&filter) {
-            drop(senders);
+        let mut new_sender_created = false;
+
+        {
             let mut senders = self.log_senders.write();
-            let (tx, rx) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
-            senders.insert(filter, tx);
-            receiver = rx;
-        } else {
-            receiver = senders.get(&filter).unwrap().subscribe();
+            let sender = senders
+                .entry(filter.clone())
+                .or_insert_with(|| {
+                    let (tx, _rx) = broadcast::channel(BROADCAST_CHANNEL_SIZE);
+                    new_sender_created = true;
+                    tx
+                })
+                .clone();
+
+            receiver = sender.subscribe();
         }
 
-        BroadcastStream::new(receiver)
-            .filter(|item| {
-                let res = match item {
-                    Ok(_) => true,
-                    Err(_) => false,
-                };
-                futures::future::ready(res)
-            })
+        let stream = BroadcastStream::new(receiver)
+            .filter(|item| futures::future::ready(item.is_ok()))
             .map(|item| item.expect("should not be an error"))
+            .map(|log| PubSubResult::Log(log));
+
+        self.executor.spawn(async move {
+            let _ = pipe_from_stream(sink, stream).await;
+        });
+
+        if new_sender_created {
+            self.start_logs_loop(filter);
+        }
     }
 
     fn start_heads_loop(&self) {
@@ -161,15 +171,20 @@ impl PubSubApi {
             return;
         }
         loop_started.insert(filter.clone(), true);
+        drop(loop_started);
+
+        let tx = {
+            let senders = self.log_senders.read();
+            senders.get(&filter).expect("sender must exist").clone()
+        };
 
         // subscribe to the `epochs_ordered` channel
         let mut receiver = self.notifications.epochs_ordered.subscribe();
-        let senders = self.log_senders.read();
-        let tx = senders.get(&filter).unwrap().clone();
 
         // clone everything we use in our async loop
         let chain_data_provider = self.chain_data_provider.clone();
         let loop_started = self.log_loop_started.clone();
+        let log_senders = self.log_senders.clone();
 
         // loop asynchronously
         let fut = async move {
@@ -210,6 +225,8 @@ impl PubSubApi {
                             if send_res.is_err() {
                                 let mut loop_started = loop_started.write();
                                 loop_started.remove(&filter);
+                                let mut senders = log_senders.write();
+                                senders.remove(&filter);
                                 return;
                             }
                         }
@@ -239,6 +256,8 @@ impl PubSubApi {
                     if send_res.is_err() {
                         let mut loop_started = loop_started.write();
                         loop_started.remove(&filter);
+                        let mut senders = log_senders.write();
+                        senders.remove(&filter);
                         return;
                     }
                 }
@@ -279,15 +298,7 @@ impl EthPubSubApiServer for PubSubApi {
                 filter.space = Space::Ethereum;
 
                 let sink = pending.accept().await?;
-                let stream = self
-                    .new_logs_stream(filter.clone())
-                    .map(|log| PubSubResult::Log(log));
-                self.executor.spawn(async {
-                    let _ = pipe_from_stream(sink, stream).await;
-                });
-
-                // start the log loop
-                self.start_logs_loop(filter);
+                self.handle_logs_subscription(filter, sink);
                 Ok(())
             }
             (SubscriptionKind::Logs, Some(Params::Logs(filter))) => {
@@ -297,16 +308,8 @@ impl EthPubSubApiServer for PubSubApi {
                     Err(_e) => return Err("Invalid filter params".into()),
                     Ok(filter) => filter,
                 };
-                let stream = self
-                    .new_logs_stream(filter.clone())
-                    .map(|log| PubSubResult::Log(log));
                 let sink = pending.accept().await?;
-                self.executor.spawn(async {
-                    let _ = pipe_from_stream(sink, stream).await;
-                });
-
-                // start the log loop
-                self.start_logs_loop(filter);
+                self.handle_logs_subscription(filter, sink);
                 Ok(())
             }
             (_, _) => {
@@ -405,7 +408,6 @@ impl ChainDataProvider {
         // if these assumptions hold, we will eventually successfully read these
         // execution results, even if they are outdated.
         for ii in 0.. {
-            let latest = self.consensus.best_epoch_number();
             match self.data_man.block_execution_result_by_hash_with_epoch(
                 &block, &pivot, false, /* update_pivot_assumption */
                 false, /* update_cache */
@@ -422,6 +424,7 @@ impl ChainDataProvider {
                 error!("Cannot find receipts with {:?}/{:?}", block, pivot);
                 return None;
             } else {
+                let latest = self.consensus.best_epoch_number();
                 if latest
                     > epoch + DEFERRED_STATE_EPOCH_COUNT + REWARD_EPOCH_COUNT
                 {
