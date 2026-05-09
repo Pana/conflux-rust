@@ -1,4 +1,7 @@
-use crate::helpers::{FeeHistoryCache, MAX_FEE_HISTORY_CACHE_BLOCK_COUNT};
+use crate::helpers::{
+    FeeHistoryCache, MAX_FEE_HISTORY_CACHE_BLOCK_COUNT,
+    MAX_REWARD_PERCENTILE_COUNT,
+};
 use async_trait::async_trait;
 use cfx_execute_helper::estimation::{EstimateExt, EstimateRequest};
 use cfx_executor::executive::{
@@ -786,7 +789,15 @@ impl EthApi {
         }
 
         if let Some(percentiles) = &reward_percentiles {
-            if percentiles.windows(2).any(|w| w[0] > w[1] || w[0] > 100.) {
+            if percentiles.len() > MAX_REWARD_PERCENTILE_COUNT as usize {
+                return Err(RpcError::from(
+                    EthApiError::InvalidRewardPercentiles,
+                )
+                .into());
+            }
+            if percentiles.iter().any(|p| *p < 0.0 || *p > 100.0)
+                || percentiles.windows(2).any(|w| w[0] > w[1])
+            {
                 return Err(RpcError::from(
                     EthApiError::InvalidRewardPercentiles,
                 )

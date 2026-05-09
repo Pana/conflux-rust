@@ -6,6 +6,8 @@ use std::{collections::VecDeque, sync::Arc};
 
 pub const MAX_FEE_HISTORY_CACHE_BLOCK_COUNT: u64 = 1024;
 
+pub const MAX_REWARD_PERCENTILE_COUNT: u64 = 100;
+
 #[derive(Debug, Clone)]
 pub struct FeeHistoryCache {
     inner: Arc<RwLock<FeeHistoryCacheInner>>,

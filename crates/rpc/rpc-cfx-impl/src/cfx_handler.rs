@@ -89,7 +89,11 @@ use rustc_hex::ToHex;
 use storage_interface::DBReaderForPoW;
 
 use crate::{
-    eth_data_hash, helpers::build_block,
+    eth_data_hash,
+    helpers::{
+        build_block, MAX_FEE_HISTORY_CACHE_BLOCK_COUNT,
+        MAX_REWARD_PERCENTILE_COUNT,
+    },
     pos_handler::convert_to_pos_epoch_reward,
 };
 
@@ -1279,8 +1283,6 @@ impl CfxRpcServer for CfxHandler {
         &self, block_count: HexU64, newest_block: EpochNumber,
         reward_percentiles: Option<Vec<f64>>,
     ) -> RpcResult<CfxFeeHistory> {
-        use crate::helpers::MAX_FEE_HISTORY_CACHE_BLOCK_COUNT;
-
         if newest_block == EpochNumber::LatestMined {
             return Err(invalid_params_rpc_err(
                 "newestBlock cannot be 'LatestMined'",
@@ -1289,9 +1291,9 @@ impl CfxRpcServer for CfxHandler {
         }
 
         info!(
-            "RPC Request: cfx_feeHistory: block_count={}, newest_block={:?}, reward_percentiles={:?}",
-            block_count, newest_block, reward_percentiles
-        );
+        "RPC Request: cfx_feeHistory: block_count={}, newest_block={:?}, reward_percentiles={:?}",
+        block_count, newest_block, reward_percentiles
+    );
 
         let mut block_count = block_count;
 
@@ -1301,6 +1303,23 @@ impl CfxRpcServer for CfxHandler {
 
         if block_count.as_u64() > MAX_FEE_HISTORY_CACHE_BLOCK_COUNT {
             block_count = HexU64::from(MAX_FEE_HISTORY_CACHE_BLOCK_COUNT);
+        }
+
+        if let Some(percentiles) = &reward_percentiles {
+            if percentiles.len() > MAX_REWARD_PERCENTILE_COUNT as usize {
+                return Err(invalid_params_rpc_err(
+                    "reward_percentiles",
+                    Some("too many percentiles".to_string()),
+                ));
+            }
+            if percentiles.iter().any(|p| *p < 0.0 || *p > 100.0)
+                || percentiles.windows(2).any(|w| w[0] > w[1])
+            {
+                return Err(invalid_params_rpc_err(
+                    "reward_percentiles",
+                    Some("invalid percentiles".to_string()),
+                ));
+            }
         }
 
         let inner = self.consensus_graph().inner.read();

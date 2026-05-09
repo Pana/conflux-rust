@@ -8,4 +8,5 @@ pub use cfx_rpc_cfx_impl::helpers::EpochQueue;
 pub use chain_info::ChainInfo;
 pub use fee_history_cache::{
     FeeHistoryCache, MAX_FEE_HISTORY_CACHE_BLOCK_COUNT,
+    MAX_REWARD_PERCENTILE_COUNT,
 };

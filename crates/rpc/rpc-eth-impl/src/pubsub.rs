@@ -206,7 +206,10 @@ impl PubSubApi {
                 // publish pivot chain reorg if necessary
                 if epoch.0 <= last_epoch {
                     debug!("pivot chain reorg: {} -> {}", last_epoch, epoch.0);
-                    assert!(epoch.0 > 0, "Unexpected epoch number received.");
+                    if epoch.0 == 0 {
+                        error!("Unexpected epoch number received.");
+                        continue;
+                    }
 
                     let mut reverted = vec![];
                     while let Some(e) = epochs.back() {
@@ -478,7 +481,7 @@ impl ChainDataProvider {
                     // Even if the epoch was executed, the phantom block on the
                     // fork should be unable to constructed.
                     warn!(
-                        "Cannot onstruct phantom block for {:?}, latest_epoch={}",
+                        "Cannot construct phantom block for {:?}, latest_epoch={}",
                         pivot, latest
                     );
                     return None;
@@ -494,7 +497,7 @@ impl ChainDataProvider {
     ) -> Option<Vec<LocalizedLogEntry>> {
         info!("eth pubsub retrieve_epoch_logs");
         let (epoch_number, hashes) = epoch;
-        let pivot = hashes.last().cloned().expect("epoch should not be empty");
+        let pivot = hashes.last().cloned()?;
 
         let pb = self.get_phantom_block(epoch_number, pivot).await?;
 

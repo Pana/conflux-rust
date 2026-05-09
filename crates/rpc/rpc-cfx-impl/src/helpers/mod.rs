@@ -12,3 +12,4 @@ pub use poll_filter::{
 pub use poll_manager::PollManager;
 
 pub const MAX_FEE_HISTORY_CACHE_BLOCK_COUNT: u64 = 1024;
+pub const MAX_REWARD_PERCENTILE_COUNT: u64 = 100;
