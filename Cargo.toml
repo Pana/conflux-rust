@@ -254,17 +254,17 @@ crossbeam-channel = "0.5"
 atom = "0.3"
 
 # alloy & revm
-alloy-sol-types = "1.4.1"
-alloy-primitives = "1.4.1"
-alloy-rpc-types = "2.0.5"
-alloy-rpc-types-trace = "2.0.5"
+alloy-sol-types = "1.6.0"
+alloy-primitives = "1.6.0"
+alloy-rpc-types = "2.1.0"
+alloy-rpc-types-trace = "2.1.0"
 revm = { version = "33.1.0", default-features = false }
 revm-primitives = "21.0.1"
 revm-interpreter = "31.1.0"
 revm-context-interface = "13.1.0"
 revm-bytecode = "7.1"
 revm-precompile = "31.0.0"
-alloy-primitives-wrapper = { git = "https://github.com/Conflux-Chain/alloy-primitives-wrapper.git", rev = "2683b5d133ebd1035afb98285fb8a50209a5dc19" }
+alloy-primitives-wrapper = { git = "https://github.com/Conflux-Chain/alloy-primitives-wrapper.git", rev = "c7c7a2ca4c56128ea371d3a4d1951dfa4f97078f" }
 
 jsonrpsee = "0.26"
 jsonrpsee-core = "0.26"
