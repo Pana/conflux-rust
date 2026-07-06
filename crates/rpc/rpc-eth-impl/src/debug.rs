@@ -19,6 +19,49 @@ use primitives::{
 };
 use std::{sync::Arc, vec};
 
+enum TracerValidationOutcome {
+    Supported,
+    Noop,
+}
+
+fn validate_tracer_opts(
+    opts: &GethDebugTracingOptions,
+) -> Result<TracerValidationOutcome, CoreError> {
+    match &opts.tracer {
+        None => Ok(TracerValidationOutcome::Supported),
+        Some(tracer_type) => match tracer_type {
+            BuiltInTracer(builtin) => match builtin {
+                GethDebugBuiltInTracerType::FourByteTracer => {
+                    Ok(TracerValidationOutcome::Supported)
+                }
+                GethDebugBuiltInTracerType::CallTracer => {
+                    opts.tracer_config
+                        .clone()
+                        .into_call_config()
+                        .map_err(|err| CoreError::Msg(err.to_string()))?;
+                    Ok(TracerValidationOutcome::Supported)
+                }
+                GethDebugBuiltInTracerType::PreStateTracer => {
+                    opts.tracer_config
+                        .clone()
+                        .into_pre_state_config()
+                        .map_err(|err| CoreError::Msg(err.to_string()))?;
+                    Ok(TracerValidationOutcome::Supported)
+                }
+                GethDebugBuiltInTracerType::NoopTracer => {
+                    Ok(TracerValidationOutcome::Noop)
+                }
+                GethDebugBuiltInTracerType::MuxTracer
+                | GethDebugBuiltInTracerType::FlatCallTracer
+                | GethDebugBuiltInTracerType::Erc7562Tracer => {
+                    Err(CoreError::Msg("not supported".to_string()))
+                }
+            },
+            JsTracer(_) => Err(CoreError::Msg("not supported".to_string())),
+        },
+    }
+}
+
 pub struct DebugApi {
     consensus: SharedConsensusGraph,
     max_estimation_gas_limit: Option<U256>,
@@ -72,6 +115,13 @@ impl DebugApi {
 
         let opts = opts.unwrap_or_default();
         let block_num = block_number.unwrap_or_default();
+
+        match validate_tracer_opts(&opts.tracing_options)? {
+            TracerValidationOutcome::Noop => {
+                return Ok(GethTrace::NoopTracer(NoopFrame::default()))
+            }
+            TracerValidationOutcome::Supported => {}
+        }
 
         let epoch_num = self
             .get_block_epoch_num(block_num)
@@ -150,6 +200,14 @@ impl DebugApi {
         &self, block_num: u64, opts: Option<GethDebugTracingOptions>,
     ) -> Result<Vec<TraceResult>, CoreError> {
         let opts = opts.unwrap_or_default();
+
+        match validate_tracer_opts(&opts)? {
+            TracerValidationOutcome::Noop => {
+                return self.noop_trace_block_by_num(block_num);
+            }
+            TracerValidationOutcome::Supported => {}
+        }
+
         let epoch_traces = self
             .consensus_graph()
             .collect_epoch_geth_trace(block_num, None, opts)?;
@@ -165,53 +223,54 @@ impl DebugApi {
         Ok(result)
     }
 
+    // For noopTracer, return a `NoopFrame` per EVM-space tx without executing
+    // any transactions. This avoids the unnecessary performance cost of
+    // replaying the entire block, and makes the behaviour consistent with
+    // `trace_transaction` which also returns `NoopFrame` without execution.
+    fn noop_trace_block_by_num(
+        &self, block_num: u64,
+    ) -> Result<Vec<TraceResult>, CoreError> {
+        let epoch = EpochNumber::Number(block_num);
+        self.consensus_graph()
+            .validate_stated_epoch(&epoch)
+            .map_err(|err| CoreError::Msg(err))?;
+
+        let epoch_block_hashes = self
+            .consensus_graph()
+            .get_block_hashes_by_epoch(epoch)
+            .map_err(|err| CoreError::Msg(err.to_string()))?;
+
+        let blocks = self
+            .consensus
+            .data_man
+            .blocks_by_hash_list(&epoch_block_hashes, false)
+            .ok_or(CoreError::Msg("blocks should exist".to_string()))?;
+
+        Ok(blocks
+            .iter()
+            .flat_map(|block| {
+                block
+                    .transactions
+                    .iter()
+                    .filter(|tx| tx.space() == Space::Ethereum)
+                    .map(|tx| TraceResult::Success {
+                        result: GethTrace::NoopTracer(NoopFrame::default()),
+                        tx_hash: Some(to_alloy_h256(tx.hash())),
+                    })
+            })
+            .collect())
+    }
+
     pub fn trace_transaction(
         &self, hash: H256, opts: Option<GethDebugTracingOptions>,
     ) -> Result<GethTrace, CoreError> {
         let opts = opts.unwrap_or_default();
 
-        // early return if tracer is not supported or NoopTracer is requested
-        if let Some(tracer_type) = &opts.tracer {
-            match tracer_type {
-                BuiltInTracer(builtin_tracer) => match builtin_tracer {
-                    GethDebugBuiltInTracerType::FourByteTracer => (),
-                    GethDebugBuiltInTracerType::CallTracer => {
-                        // pre check config
-                        let _ = opts
-                            .tracer_config
-                            .clone()
-                            .into_call_config()
-                            .map_err(|err| {
-                            CoreError::Msg(err.to_string())
-                        })?;
-                        ()
-                    }
-                    GethDebugBuiltInTracerType::PreStateTracer => {
-                        // pre check config
-                        let _ = opts
-                            .tracer_config
-                            .clone()
-                            .into_pre_state_config()
-                            .map_err(|err| CoreError::Msg(err.to_string()))?;
-                        ()
-                    }
-                    GethDebugBuiltInTracerType::NoopTracer => {
-                        return Ok(GethTrace::NoopTracer(NoopFrame::default()))
-                    }
-                    GethDebugBuiltInTracerType::MuxTracer => {
-                        return Err(CoreError::Msg("not supported".to_string()))
-                    }
-                    GethDebugBuiltInTracerType::FlatCallTracer => {
-                        return Err(CoreError::Msg("not supported".to_string()))
-                    }
-                    GethDebugBuiltInTracerType::Erc7562Tracer => {
-                        return Err(CoreError::Msg("not supported".to_string()))
-                    }
-                },
-                JsTracer(_) => {
-                    return Err(CoreError::Msg("not supported".to_string()))
-                }
+        match validate_tracer_opts(&opts)? {
+            TracerValidationOutcome::Noop => {
+                return Ok(GethTrace::NoopTracer(NoopFrame::default()))
             }
+            TracerValidationOutcome::Supported => {}
         }
 
         let tx_index = self
