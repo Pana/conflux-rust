@@ -258,7 +258,7 @@ impl CallTracer for GethTracer {
 
         let instruction_result = to_instruction_result(result);
 
-        if instruction_result.is_error() {
+        if instruction_result.is_halt() {
             self.inner.gas_inspector.set_gas_remainning(0);
         }
 
@@ -325,7 +325,7 @@ impl CallTracer for GethTracer {
 
         let instruction_result = to_instruction_result(result);
 
-        if instruction_result.is_error() {
+        if instruction_result.is_halt() {
             self.inner.gas_inspector.set_gas_remainning(0);
         }
 
