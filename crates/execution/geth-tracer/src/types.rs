@@ -28,7 +28,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 //! Types for representing call trace items.
-use crate::{config::TraceStyle, utils, utils::convert_memory};
+use crate::{utils, utils::convert_memory, TraceStyle};
 use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types_trace::geth::{
     CallFrame, CallLogFrame, GethDefaultTracingOptions, GethTrace, StructLog,

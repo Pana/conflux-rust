@@ -1,5 +1,5 @@
 //! Util functions for revm related ops
-use crate::config::TraceStyle;
+use crate::TraceStyle;
 use alloy_primitives::{hex, Address as RAddress, B256, U256 as RU256};
 use alloy_primitives_wrapper::{WAddress, WB256, WU256};
 use alloy_sol_types::{ContractError, GenericRevertReason};

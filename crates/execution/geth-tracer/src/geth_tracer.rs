@@ -1,9 +1,9 @@
 use crate::{
-    config::TracingInspectorConfig,
     fourbyte::FourByteInspector,
     tracing_inspector::TracingInspector,
     types::{LogCallOrder, TxExecContext},
     utils::{to_alloy_address, to_alloy_h256, to_alloy_u256},
+    TracingInspectorConfig,
 };
 use alloy_primitives::{Address, Bytes, LogData};
 use alloy_rpc_types_trace::geth::{
