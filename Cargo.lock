@@ -3671,7 +3671,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7336,7 +7336,7 @@ dependencies = [
 [[package]]
 name = "revm-inspectors"
 version = "0.41.2"
-source = "git+https://github.com/Conflux-Chain/revm-inspectors?rev=d897fe426866377e79fbe31e450a1f5fe7a1e1e0#d897fe426866377e79fbe31e450a1f5fe7a1e1e0"
+source = "git+https://github.com/Conflux-Chain/revm-inspectors?rev=213d8e195ec0d40676f2104874869c64b0788bbd#213d8e195ec0d40676f2104874869c64b0788bbd"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-eth",
@@ -7656,7 +7656,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8740,7 +8740,7 @@ dependencies = [
  "getrandom 0.3.2",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
