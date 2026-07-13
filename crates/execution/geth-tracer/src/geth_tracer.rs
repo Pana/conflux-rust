@@ -1,15 +1,16 @@
 use crate::{
-    config::TracingInspectorConfig,
     fourbyte::FourByteInspector,
     tracing_inspector::TracingInspector,
-    types::{LogCallOrder, TxExecContext},
-    utils::{to_alloy_address, to_alloy_h256, to_alloy_u256},
+    types::TxExecContext,
+    utils::{to_alloy_address, to_alloy_h256, to_alloy_u256, to_call_kind},
+    TracingInspectorConfig,
 };
 use alloy_primitives::{Address, Bytes, LogData};
 use alloy_rpc_types_trace::geth::{
-    CallConfig, GethDebugBuiltInTracerType, GethDebugBuiltInTracerType::*,
-    GethDebugTracerType, GethDebugTracingOptions, GethTrace, NoopFrame,
-    PreStateConfig,
+    CallConfig, DiffMode, GethDebugBuiltInTracerType,
+    GethDebugBuiltInTracerType::*, GethDebugTracerType,
+    GethDebugTracingOptions, GethTrace, NoopFrame, PreStateConfig,
+    PreStateFrame, PreStateMode,
 };
 use cfx_executor::{
     machine::Machine,
@@ -21,7 +22,7 @@ use cfx_executor::{
 };
 use cfx_types::{Space, H160};
 use cfx_vm_types::{ActionParams, CallType, Error, InterpreterInfo};
-use revm::{database::InMemoryDB, state::EvmState as State};
+use revm_inspectors::tracing::types::{CallLog, TraceMemberOrder};
 use revm_interpreter::{Gas, InstructionResult, InterpreterResult};
 
 use std::sync::Arc;
@@ -134,16 +135,17 @@ impl GethTracer {
                     GethTrace::CallTracer(frame)
                 }
                 PreStateTracer => {
-                    // TODO replace the empty state and db with a real state
+                    // Prestate data collection is not wired to the executor
+                    // state yet; keep the previous stub behaviour of returning
+                    // an empty frame. This will be replaced by the dedicated
+                    // prestate work.
                     let opts =
                         self.prestate_config().expect("should have config");
-                    let state = State::default();
-                    let db = InMemoryDB::default();
-                    let frame = self
-                        .inner
-                        .into_geth_builder()
-                        .geth_prestate_traces(state, opts, db)
-                        .unwrap();
+                    let frame = if opts.is_default_mode() {
+                        PreStateFrame::Default(PreStateMode::default())
+                    } else {
+                        PreStateFrame::Diff(DiffMode::default())
+                    };
                     GethTrace::PreStateTracer(frame)
                 }
                 NoopTracer | MuxTracer | FlatCallTracer | Erc7562Tracer => {
@@ -232,7 +234,7 @@ impl CallTracer for GethTracer {
             to,
             params.data.clone().unwrap_or_default().into(),
             value,
-            params.call_type.into(),
+            to_call_kind(params.call_type),
             from,
             params.gas.as_u64(),
             maybe_precompile,
@@ -299,7 +301,7 @@ impl CallTracer for GethTracer {
             Address::default(), // call_result will set this address
             params.data.clone().unwrap_or_default().into(),
             value,
-            params.call_type.into(),
+            to_call_kind(params.call_type),
             to_alloy_address(params.sender),
             params.gas.as_u64(),
             Some(false),
@@ -371,7 +373,7 @@ impl OpcodeTracer for GethTracer {
             .set_gas_remainning(interp.gas_remainning().as_u64());
 
         if self.inner.config.record_steps {
-            self.inner.start_step(interp, self.depth as u64);
+            self.inner.start_step(interp);
         }
     }
 
@@ -392,17 +394,30 @@ impl OpcodeTracer for GethTracer {
     }
 
     fn log(
-        &mut self, _address: &cfx_types::Address,
-        topics: &Vec<cfx_types::H256>, data: &[u8],
+        &mut self, address: &cfx_types::Address, topics: &Vec<cfx_types::H256>,
+        data: &[u8],
     ) {
         if self.inner.config.record_logs {
+            // global log index across all trace nodes recorded so far
+            let log_count: usize =
+                self.inner.traces.nodes().iter().map(|n| n.logs.len()).sum();
+
             let trace_idx = self.inner.last_trace_idx();
-            let trace = &mut self.inner.traces.arena[trace_idx];
-            trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
-            trace.logs.push(LogData::new_unchecked(
+            let trace = &mut self.inner.traces.nodes_mut()[trace_idx];
+            let position = trace.children.len() as u64;
+
+            trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
+            let raw_log = LogData::new_unchecked(
                 topics.iter().map(|f| to_alloy_h256(*f)).collect(),
                 Bytes::from(data.to_vec()),
-            ));
+            );
+            trace.logs.push(CallLog {
+                address: to_alloy_address(*address),
+                raw_log,
+                decoded: None,
+                position,
+                index: log_count as u64,
+            });
         }
     }
 
@@ -415,7 +430,7 @@ impl OpcodeTracer for GethTracer {
         }
 
         let trace_idx = self.inner.last_trace_idx();
-        let trace = &mut self.inner.traces.arena[trace_idx].trace;
+        let trace = &mut self.inner.traces.nodes_mut()[trace_idx].trace;
         trace.selfdestruct_refund_target =
             Some(to_alloy_address(*target as H160))
     }

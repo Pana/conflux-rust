@@ -1,17 +1,16 @@
 #![allow(unused)]
-mod arena;
-mod config;
 mod fourbyte;
 mod gas;
-mod geth_builder;
 mod geth_tracer;
 mod tracing_inspector;
 mod types;
 mod utils;
 
-use arena::CallTraceArena;
-use config::TracingInspectorConfig;
-use geth_builder::GethTraceBuilder;
+// Trace recording config, style, arena and trace types now all come from the
+// upstream `revm-inspectors` crate; the vendored
+// `config`/`geth_builder`/`arena` modules and the duplicated trace types in
+// `types` have been removed in favour of the upstream equivalents.
+use revm_inspectors::tracing::{TraceStyle, TracingInspectorConfig};
 
 pub use geth_tracer::{GethTraceKey, GethTracer};
 pub use types::{GethTraceWithHash, TxExecContext};

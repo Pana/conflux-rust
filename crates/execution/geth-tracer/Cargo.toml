@@ -16,6 +16,7 @@ license-file.workspace = true
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 revm = { workspace = true, default-features = false, features = ["std"] }
+revm-inspectors = { workspace = true }
 alloy-rpc-types-trace = { workspace = true }
 cfx-vm-types = { workspace = true }
 cfx-types = { workspace = true }

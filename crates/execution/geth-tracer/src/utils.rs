@@ -1,5 +1,5 @@
 //! Util functions for revm related ops
-use crate::config::TraceStyle;
+use crate::TraceStyle;
 use alloy_primitives::{hex, Address as RAddress, B256, U256 as RU256};
 use alloy_primitives_wrapper::{WAddress, WB256, WU256};
 use alloy_sol_types::{ContractError, GenericRevertReason};
@@ -7,7 +7,23 @@ use cfx_types::{Address, H160, H256, U256};
 use cfx_vm_interpreter::instructions::{
     INSTRUCTIONS, INSTRUCTIONS_CANCUN, INSTRUCTIONS_CIP645,
 };
+use cfx_vm_types::CallType as CfxCallType;
 use revm::interpreter::InstructionResult;
+use revm_inspectors::tracing::types::CallKind;
+
+/// Converts a Conflux [`CallType`](CfxCallType) into an upstream [`CallKind`].
+///
+/// This replaces the previous `impl From<CfxCallType> for CallKind`, which is
+/// no longer allowed by the orphan rule now that `CallKind` is a foreign type.
+pub(crate) fn to_call_kind(ct: CfxCallType) -> CallKind {
+    match ct {
+        CfxCallType::None => CallKind::Create,
+        CfxCallType::Call => CallKind::Call,
+        CfxCallType::CallCode => CallKind::CallCode,
+        CfxCallType::DelegateCall => CallKind::DelegateCall,
+        CfxCallType::StaticCall => CallKind::StaticCall,
+    }
+}
 
 /// Converts a non successful [`InstructionResult`] to an error message.
 ///
