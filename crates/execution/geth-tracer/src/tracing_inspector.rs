@@ -29,16 +29,18 @@ use crate::TxExecContext;
 // IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 use super::{
-    arena::PushTraceKind,
     gas::GasInspector,
-    types::{
-        CallKind, CallTrace, CallTraceNode, CallTraceStep, RecordedMemory,
-        StorageChange, StorageChangeReason,
-    },
-    utils::{gas_used, stack_push_count, to_alloy_address, to_alloy_u256},
-    CallTraceArena, GethTraceBuilder, TracingInspectorConfig,
+    utils::{gas_used, stack_push_count, to_alloy_u256},
+    TracingInspectorConfig,
 };
 use cfx_types::{Space, H160};
+use revm_inspectors::tracing::{
+    types::{
+        CallKind, CallTrace, CallTraceNode, CallTraceStep, RecordedMemory,
+        StorageChange, StorageChangeReason, TraceMemberOrder,
+    },
+    CallTraceArena, GethTraceBuilder, PushTraceKind,
+};
 
 use alloy_primitives::{Address, Bytes, U256};
 
@@ -58,8 +60,6 @@ pub struct TracingInspector {
     pub traces: CallTraceArena,
     /// Tracks active calls
     trace_stack: Vec<usize>,
-    /// Tracks active steps
-    step_stack: Vec<StackStep>,
     /// Tracks the return value of the last call
     pub last_call_return_data: Option<Bytes>,
     /// The gas inspector used to track remaining gas.
@@ -80,7 +80,6 @@ impl TracingInspector {
             config,
             traces: Default::default(),
             trace_stack: vec![],
-            step_stack: vec![],
             last_call_return_data: None,
             gas_inspector: Default::default(),
             machine,
@@ -98,7 +97,6 @@ impl TracingInspector {
         let Self {
             traces,
             trace_stack,
-            step_stack,
             last_call_return_data,
             gas_inspector,
             // kept
@@ -108,7 +106,6 @@ impl TracingInspector {
         } = self;
         traces.clear();
         trace_stack.clear();
-        step_stack.clear();
         last_call_return_data.take();
         *gas_inspector = Default::default();
     }
@@ -123,11 +120,27 @@ impl TracingInspector {
     /// Returns the config of the inspector.
     pub const fn config(&self) -> &TracingInspectorConfig { &self.config }
 
+    /// Returns a mutable reference to the config of the inspector.
+    pub fn config_mut(&mut self) -> &mut TracingInspectorConfig {
+        &mut self.config
+    }
+
+    /// Updates the config of the inspector.
+    pub fn update_config(
+        &mut self,
+        f: impl FnOnce(TracingInspectorConfig) -> TracingInspectorConfig,
+    ) {
+        self.config = f(self.config);
+    }
+
     /// Gets a reference to the recorded call traces.
-    pub const fn get_traces(&self) -> &CallTraceArena { &self.traces }
+    pub const fn traces(&self) -> &CallTraceArena { &self.traces }
 
     /// Gets a mutable reference to the recorded call traces.
-    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena { &mut self.traces }
+    pub fn traces_mut(&mut self) -> &mut CallTraceArena { &mut self.traces }
+
+    /// Consumes the inspector and returns the recorded call traces.
+    pub fn into_traces(self) -> CallTraceArena { self.traces }
 
     /// Manually the gas used of the root trace.
     ///
@@ -138,8 +151,22 @@ impl TracingInspector {
     /// for example.
     #[inline]
     pub fn set_transaction_gas_used(&mut self, gas_used: u64) {
-        if let Some(node) = self.traces.arena.first_mut() {
+        if let Some(node) = self.traces.nodes_mut().first_mut() {
             node.trace.gas_used = gas_used;
+        }
+    }
+
+    /// Manually set the gas limit of the debug root trace.
+    ///
+    /// This is useful if the debug root trace's gasUsed should mirror the
+    /// actual gas used by the transaction.
+    ///
+    /// This allows setting it manually by consuming the execution result's gas
+    /// for example.
+    #[inline]
+    pub fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+        if let Some(node) = self.traces.nodes_mut().first_mut() {
+            node.trace.gas_limit = gas_limit;
         }
     }
 
@@ -151,22 +178,44 @@ impl TracingInspector {
         self
     }
 
-    /// Consumes the Inspector and returns a [ParityTraceBuilder].
-    // #[inline]
-    // pub fn into_parity_builder(self) -> ParityTraceBuilder {
-    //     ParityTraceBuilder::new(self.traces.arena, self.spec_id, self.config)
-    // }
+    /// Work with [TracingInspector::set_transaction_gas_limit] function
+    #[inline]
+    pub fn with_transaction_gas_limit(mut self, gas_limit: u64) -> Self {
+        self.set_transaction_gas_limit(gas_limit);
+        self
+    }
+
+    /// Manually set the caller address of the root trace.
+    ///
+    /// This is useful for custom transaction types (e.g. account abstraction
+    /// batches) where the EVM's call entry point may not reflect the actual
+    /// transaction sender.
+    #[inline]
+    pub fn set_transaction_caller(&mut self, caller: Address) {
+        if let Some(node) = self.traces.nodes_mut().first_mut() {
+            node.trace.caller = caller;
+        }
+    }
 
     /// Consumes the Inspector and returns a [GethTraceBuilder].
     #[inline]
-    pub fn into_geth_builder(self) -> GethTraceBuilder {
-        GethTraceBuilder::new(self.traces.arena, self.config)
+    pub fn into_geth_builder(self) -> GethTraceBuilder<'static> {
+        GethTraceBuilder::new(self.traces.into_nodes())
     }
 
     /// Returns true if we're no longer in the context of the root call.
     fn is_deep(&self) -> bool {
         // the root call will always be the first entry in the trace stack
         !self.trace_stack.is_empty()
+    }
+
+    /// Returns how many logs we already recorded.
+    fn log_count(&self) -> usize {
+        self.traces
+            .nodes()
+            .iter()
+            .map(|trace| trace.logs.len())
+            .sum()
     }
 
     /// Returns true if this a call to a precompile contract.
@@ -197,7 +246,9 @@ impl TracingInspector {
     #[track_caller]
     #[inline]
     pub fn active_trace(&self) -> Option<&CallTraceNode> {
-        self.trace_stack.last().map(|idx| &self.traces.arena[*idx])
+        self.trace_stack
+            .last()
+            .map(|idx| &self.traces.nodes()[*idx])
     }
 
     /// Returns the last trace [CallTrace] index from the stack.
@@ -290,7 +341,7 @@ impl TracingInspector {
         } = result;
 
         let trace_idx = self.pop_trace_idx();
-        let trace = &mut self.traces.arena[trace_idx].trace;
+        let trace = &mut self.traces.nodes_mut()[trace_idx].trace;
 
         if trace_idx == 0 {
             // this is the root call which should get the gas used of the
@@ -322,102 +373,92 @@ impl TracingInspector {
     ///
     /// This expects an existing [CallTrace], in other words, this panics if not
     /// within the context of a call.
-    pub fn start_step(&mut self, interp: &dyn InterpreterInfo, depth: u64) {
+    pub fn start_step(&mut self, interp: &dyn InterpreterInfo) {
         let trace_idx = self.last_trace_idx();
-        let trace = &mut self.traces.arena[trace_idx];
+        let node = &mut self.traces.nodes_mut()[trace_idx];
 
-        self.step_stack.push(StackStep {
-            trace_idx,
-            step_idx: trace.trace.steps.len(),
-        });
-
+        // Upstream captures memory at the *start* of the step (i.e. the memory
+        // before this opcode executes); there is no separate resize in
+        // `step_end` anymore.
         let memory = self
             .config
             .record_memory_snapshots
-            .then(|| RecordedMemory::new(interp.mem().to_vec()))
-            .unwrap_or_default();
+            .then(|| RecordedMemory::new(interp.mem()));
 
-        let stack: Option<Vec<U256>> =
-            if self.config.record_stack_snapshots.is_full() {
-                Some(
-                    interp
-                        .stack()
-                        .into_iter()
-                        .map(|v| to_alloy_u256(*v))
-                        .collect(),
-                )
+        let stack: Option<Box<[U256]>> =
+            if self.config.record_stack_snapshots.is_full()
+                || self.config.record_stack_snapshots.is_all()
+            {
+                Some(interp.stack().iter().map(|v| to_alloy_u256(*v)).collect())
             } else {
                 None
             };
 
-        let op = OpCode::new(interp.current_opcode())
-            .or_else(|| {
-                // if the opcode is invalid, we'll use the invalid opcode to
-                // represent it because this is invoked before
-                // the opcode is executed, the evm will eventually return a
-                // `Halt` with invalid/unknown opcode as result
-                let invalid_opcode = 0xfe;
-                OpCode::new(invalid_opcode)
-            })
-            .expect("is valid opcode;");
+        let returndata = self
+            .config
+            .record_returndata_snapshots
+            .then(|| Bytes::copy_from_slice(interp.return_data()))
+            .unwrap_or_default();
+
+        let gas_used = 0;
+        let immediate_bytes = None;
+
+        let op = OpCode::new_or_unknown(interp.current_opcode());
 
         // if op is SLOAD or SSTORE, we need to record the storage change
-        let storage_change = match (op.get(), stack.clone()) {
+        let storage_change = match (op.get(), stack.as_deref()) {
             (opcode::SLOAD, Some(s)) if s.len() >= 1 => {
                 let key = s[s.len() - 1];
-                let change = StorageChange {
+                Some(Box::new(StorageChange {
                     key,
                     value: U256::ZERO,
                     had_value: None, // not used for now
                     reason: StorageChangeReason::SLOAD,
-                };
-                Some(change)
+                }))
             }
             (opcode::SSTORE, Some(s)) if s.len() >= 2 => {
                 let key = s[s.len() - 1];
                 let value = s[s.len() - 2];
-                let change = StorageChange {
+                Some(Box::new(StorageChange {
                     key,
                     value,
                     had_value: None, // not used for now
                     reason: StorageChangeReason::SSTORE,
-                };
-                Some(change)
+                }))
             }
             _ => None,
         };
 
-        trace.trace.steps.push(CallTraceStep {
-            depth,
+        let step_idx = node.trace.steps.len();
+        node.trace.steps.push(CallTraceStep {
             pc: interp.program_counter() as usize,
             op,
-            contract: to_alloy_address(interp.contract_address()),
             stack,
-            push_stack: None,
-            memory_size: memory.len(),
             memory,
+            returndata,
             gas_remaining: self.gas_inspector.gas_remaining(),
             gas_refund_counter: 0, // conflux has no gas refund
+            gas_used,              // not consumed by the geth builder
+            immediate_bytes,
 
-            // fields will be populated end of call
+            // fields will be populated end of step
+            push_stack: None,
             gas_cost: 0,
             storage_change,
             status: None,
+            decoded: None,
         });
+
+        node.ordering.push(TraceMemberOrder::Step(step_idx));
     }
 
     /// Fills the current trace with the output of a step.
     ///
     /// Invoked on [Inspector::step_end].
     pub fn fill_step_on_step_end(&mut self, interp: &dyn InterpreterInfo) {
-        let StackStep {
-            trace_idx,
-            step_idx,
-        } = self
-            .step_stack
-            .pop()
-            .expect("can't fill step without starting a step first");
-        let step = &mut self.traces.arena[trace_idx].trace.steps[step_idx];
+        let trace_idx = self.last_trace_idx();
+        let node = &mut self.traces.nodes_mut()[trace_idx];
+        let step = node.trace.steps.last_mut().unwrap();
 
         if self.config.record_stack_snapshots.is_pushes() {
             let spec = self.machine.spec(
@@ -436,29 +477,27 @@ impl TracingInspector {
             );
         }
 
-        if self.config.record_memory_snapshots {
-            // resize memory so opcodes that allocated memory is correctly
-            // displayed
-            if interp.mem().len() > step.memory.len() {
-                step.memory.resize(interp.mem().len());
-            }
-        }
+        // Note: memory is captured once at step start (mirroring upstream);
+        // there is no step_end resize anymore.
 
-        if self.config.record_state_diff {
-            let op = step.op.get();
-
-            // update value if it's a SLOAD
-            match (op, step.push_stack.clone(), step.storage_change) {
-                (opcode::SLOAD, Some(s), Some(change)) if s.len() >= 1 => {
-                    let val = s.last().unwrap();
-                    step.storage_change = Some(StorageChange {
-                        key: change.key,
-                        value: *val,
-                        had_value: None, // not used for now
-                        reason: StorageChangeReason::SLOAD,
-                    });
+        if self.config.record_state_diff && step.op.get() == opcode::SLOAD {
+            // update the recorded SLOAD value now that the load has executed
+            let sload = match (
+                step.push_stack.as_deref(),
+                step.storage_change.as_deref(),
+            ) {
+                (Some(s), Some(change)) if !s.is_empty() => {
+                    Some((change.key, *s.last().unwrap()))
                 }
-                _ => {}
+                _ => None,
+            };
+            if let Some((key, value)) = sload {
+                step.storage_change = Some(Box::new(StorageChange {
+                    key,
+                    value,
+                    had_value: None, // not used for now
+                    reason: StorageChangeReason::SLOAD,
+                }));
             }
         }
 
@@ -473,10 +512,4 @@ impl TracingInspector {
         // TODO set the status
         // step.status = interp.instruction_result;
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct StackStep {
-    trace_idx: usize,
-    step_idx: usize,
 }

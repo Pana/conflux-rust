@@ -264,7 +264,7 @@ revm-interpreter = "41.0.0"
 revm-context-interface = "41.0.0"
 revm-bytecode = "41.0.0"
 revm-precompile = "41.0.0"
-revm-inspectors = { git = "https://github.com/Conflux-Chain/revm-inspectors", rev = "d897fe426866377e79fbe31e450a1f5fe7a1e1e0" }
+revm-inspectors = { git = "https://github.com/Conflux-Chain/revm-inspectors", rev = "213d8e195ec0d40676f2104874869c64b0788bbd" }
 alloy-primitives-wrapper = { git = "https://github.com/Conflux-Chain/alloy-primitives-wrapper.git", rev = "c7c7a2ca4c56128ea371d3a4d1951dfa4f97078f" }
 
 jsonrpsee = "0.26"

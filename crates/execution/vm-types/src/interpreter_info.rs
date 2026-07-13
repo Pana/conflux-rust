@@ -13,6 +13,12 @@ pub trait InterpreterInfo {
 
     fn stack(&self) -> &Vec<U256>;
 
+    /// Returns the current EVM return-data buffer.
+    ///
+    /// This is the buffer exposed to `RETURNDATASIZE` and
+    /// `RETURNDATACOPY`, not the final output of the current call frame.
+    fn return_data(&self) -> &[u8];
+
     fn return_stack(&self) -> &Vec<usize>;
 
     fn contract_address(&self) -> Address;

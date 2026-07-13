@@ -1669,6 +1669,8 @@ impl<Cost: CostType, const CANCUN: bool> InterpreterInfo
 
     fn stack(&self) -> &Vec<U256> { self.stack.content() }
 
+    fn return_data(&self) -> &[u8] { &self.return_data }
+
     fn contract_address(&self) -> Address { self.params.address }
 }
 
