@@ -117,6 +117,16 @@ impl OverlayAccount {
         }
     }
 
+    /// Like `code()`, but returns `None` instead of panicking when the code
+    /// of a contract account has not been loaded from the DB.
+    pub(in crate::state) fn code_opt(&self) -> Option<Arc<Bytes>> {
+        if self.code_hash == KECCAK_EMPTY {
+            None
+        } else {
+            self.code.as_ref().map(|info| info.code.clone())
+        }
+    }
+
     /// To prevent panics from reading ext fields without loading from the DB,
     /// these method are restricted to be visible only within the `state`
     /// module.

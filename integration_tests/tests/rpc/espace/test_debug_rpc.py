@@ -58,6 +58,87 @@ def test_call_trace(ew3, erc20_token_transfer):
     assert call_trace["value"] == "0x0"
     assert call_trace["output"] == "0x0000000000000000000000000000000000000000000000000000000000000001"
 
+def test_prestate_trace_default_mode(ew3, erc20_token_transfer):
+    transfer_hash = erc20_token_transfer["tx_hash"]
+    receipt = erc20_token_transfer["receipt"]
+    sender = receipt["from"].lower()
+    contract = receipt["to"].lower()
+
+    trace = ew3.manager.request_blocking('debug_traceTransaction', [transfer_hash, {"tracer": "prestateTracer"}])
+
+    # sender is included with its pre-transaction basic fields
+    assert sender in trace
+    assert int(trace[sender]["balance"], 16) > 0
+    assert trace[sender]["nonce"] > 0
+
+    # the ERC20 contract is included with code and the accessed balance slots
+    assert contract in trace
+    assert trace[contract]["code"].startswith("0x6080")
+    assert len(trace[contract]["storage"]) > 0
+
+def test_prestate_trace_diff_mode(ew3, erc20_token_transfer):
+    transfer_hash = erc20_token_transfer["tx_hash"]
+    receipt = erc20_token_transfer["receipt"]
+    sender = receipt["from"].lower()
+    contract = receipt["to"].lower()
+
+    trace = ew3.manager.request_blocking('debug_traceTransaction', [transfer_hash, {
+        "tracer": "prestateTracer",
+        "tracerConfig": {"diffMode": True},
+    }])
+    pre, post = trace["pre"], trace["post"]
+
+    # sender pays gas and bumps its nonce
+    assert pre[sender]["nonce"] + 1 == post[sender]["nonce"]
+    assert int(pre[sender]["balance"], 16) > int(post[sender]["balance"], 16)
+
+    # token balances of the transfer parties changed; unchanged fields
+    # (e.g. the contract code) are not repeated in the diff
+    assert len(post[contract]["storage"]) > 0
+    assert "code" not in post[contract]
+    for slot, value in pre[contract]["storage"].items():
+        assert post[contract]["storage"].get(slot) != value
+
+def test_prestate_trace_create_diff_mode(ew3, erc20_contract):
+    deploy_hash = erc20_contract["deploy_hash"]
+    receipt = ew3.eth.get_transaction_receipt(deploy_hash)
+    contract = receipt["contractAddress"].lower()
+
+    trace = ew3.manager.request_blocking('debug_traceTransaction', [deploy_hash, {
+        "tracer": "prestateTracer",
+        "tracerConfig": {"diffMode": True},
+    }])
+
+    # created accounts are excluded from pre and carry the code in post
+    assert contract not in trace["pre"]
+    assert contract in trace["post"]
+    assert trace["post"][contract]["code"].startswith("0x6080")
+
+def test_prestate_trace_disable_code_and_storage(ew3, erc20_token_transfer):
+    transfer_hash = erc20_token_transfer["tx_hash"]
+
+    trace = ew3.manager.request_blocking('debug_traceTransaction', [transfer_hash, {
+        "tracer": "prestateTracer",
+        "tracerConfig": {"disableCode": True, "disableStorage": True},
+    }])
+
+    for account_state in trace.values():
+        assert "code" not in account_state
+        assert "storage" not in account_state
+
+def test_prestate_trace_block(ew3, erc20_token_transfer):
+    receipt = erc20_token_transfer["receipt"]
+    block_number = receipt["blockNumber"]
+
+    traces = ew3.manager.request_blocking('debug_traceBlockByNumber', [hex(block_number), {"tracer": "prestateTracer"}])
+
+    assert len(traces) > 0
+    transfer_trace = next(
+        t for t in traces
+        if t["txHash"] == erc20_token_transfer["tx_hash"].to_0x_hex()
+    )
+    assert receipt["from"].lower() in transfer_trace["result"]
+
 def test_opcode_trace_with_config(ew3, erc20_token_transfer):
     tx_hash = erc20_token_transfer["tx_hash"]
     trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {

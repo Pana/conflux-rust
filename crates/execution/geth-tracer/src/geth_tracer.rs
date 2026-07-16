@@ -135,10 +135,11 @@ impl GethTracer {
                     GethTrace::CallTracer(frame)
                 }
                 PreStateTracer => {
-                    // Prestate data collection is not wired to the executor
-                    // state yet; keep the previous stub behaviour of returning
-                    // an empty frame. This will be replaced by the dedicated
-                    // prestate work.
+                    // The tracer cannot borrow `State` during execution, so
+                    // it only emits an empty placeholder frame; the real
+                    // frame is built from the post-transaction state
+                    // snapshot and overrides this one in
+                    // `epoch_execution::process_transaction`.
                     let opts =
                         self.prestate_config().expect("should have config");
                     let frame = if opts.is_default_mode() {
@@ -160,11 +161,18 @@ impl GethTracer {
                     .clone()
                     .unwrap_or_default();
                 let opts = self.opts.config;
-                let frame = self.inner.into_geth_builder().geth_traces(
+                let limit = opts.limit;
+                let mut frame = self.inner.into_geth_builder().geth_traces(
                     gas_used,
                     return_value,
                     opts,
                 );
+                // The upstream revm-inspectors builder does not apply the
+                // `limit` option, so
+                // truncate here.
+                if let Some(limit) = limit.filter(|limit| *limit > 0) {
+                    frame.struct_logs.truncate(limit as usize);
+                }
                 GethTrace::Default(frame)
             }
         };

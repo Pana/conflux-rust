@@ -32,6 +32,9 @@ mod warm;
 /// Implements functions for the PoS rewarding of `State`.
 mod pos;
 
+/// Per-transaction touched-state extraction for the geth `prestateTracer`.
+mod prestate_export;
+
 mod save;
 
 /// Implements functions for the sponsorship mechanism of `State`.
@@ -54,6 +57,7 @@ pub use self::{
     collateral::{initialize_cip107, settle_collateral_for_all},
     commit::StateCommitResult,
     pos::{distribute_pos_interest, update_pos_status},
+    prestate_export::{AccountSnapshot, TouchedSlot, TxTouchedAccount},
     reward::initialize_cip137,
     sponsor::COMMISSION_PRIVILEGE_SPECIAL_KEY,
     staking::initialize_or_update_dao_voted_params,

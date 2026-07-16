@@ -23,8 +23,8 @@ mod state_object;
 pub use state_object::{
     distribute_pos_interest, initialize_cip107, initialize_cip137,
     initialize_or_update_dao_voted_params, settle_collateral_for_all,
-    update_pos_status, State, StateCommitResult,
-    COMMISSION_PRIVILEGE_SPECIAL_KEY,
+    update_pos_status, AccountSnapshot, State, StateCommitResult, TouchedSlot,
+    TxTouchedAccount, COMMISSION_PRIVILEGE_SPECIAL_KEY,
 };
 #[cfg(test)]
 pub use state_object::{get_state_by_epoch_id, get_state_for_genesis_write};

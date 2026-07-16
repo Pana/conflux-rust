@@ -2,6 +2,7 @@
 mod fourbyte;
 mod gas;
 mod geth_tracer;
+mod prestate;
 mod tracing_inspector;
 mod types;
 mod utils;
@@ -13,6 +14,7 @@ mod utils;
 use revm_inspectors::tracing::{TraceStyle, TracingInspectorConfig};
 
 pub use geth_tracer::{GethTraceKey, GethTracer};
+pub use prestate::build_prestate_frame;
 pub use types::{GethTraceWithHash, TxExecContext};
 pub use utils::{
     from_alloy_address, to_alloy_address, to_alloy_h256, to_alloy_u256,

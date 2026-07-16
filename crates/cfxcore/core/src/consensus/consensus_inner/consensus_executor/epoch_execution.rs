@@ -1,9 +1,13 @@
 use super::ConsensusExecutionHandler;
 use std::{collections::BTreeSet, convert::From, sync::Arc};
 
-use alloy_rpc_types_trace::geth::GethDebugTracingOptions;
+use alloy_rpc_types_trace::geth::{
+    GethDebugTracingOptions, GethTrace, PreStateConfig,
+};
 use cfx_parameters::genesis::GENESIS_ACCOUNT_ADDRESS;
-use geth_tracer::{GethTraceWithHash, GethTracer, TxExecContext};
+use geth_tracer::{
+    build_prestate_frame, GethTraceWithHash, GethTracer, TxExecContext,
+};
 use pow_types::StakingEvent;
 
 use cfx_statedb::{Error as DbErrorKind, Result as DbResult};
@@ -296,6 +300,22 @@ impl ConsensusExecutionHandler {
         let execution_outcome =
             ExecutiveContext::new(state, env, machine, &spec)
                 .transact(transaction, options)?;
+
+        // The prestate tracer reads the touched-state snapshot from
+        // `state.cache`, which is only intact until
+        // `update_state_post_tx_execution` drains it.
+        let prestate_frame = match self
+            .prestate_tracer_config(transaction, block_context)
+        {
+            Some(config) if execution_outcome.try_as_executed().is_some() => {
+                Some(build_prestate_frame(
+                    state.collect_tx_touched_state(transaction.space())?,
+                    &config,
+                ))
+            }
+            _ => None,
+        };
+
         state.update_state_post_tx_execution(!spec.cip645.fix_eip1153);
         execution_outcome.log(transaction, &block_context.block.hash());
 
@@ -306,12 +326,21 @@ impl ConsensusExecutionHandler {
             state.burn_by_cip1559(burnt_fee);
         };
 
-        let r = make_process_tx_outcome(
+        let mut r = make_process_tx_outcome(
             execution_outcome,
             &mut env.accumulated_gas_used,
             transaction.hash,
             &spec,
         );
+
+        // The `GethTracer` observer cannot access `State` during execution,
+        // so its `PreStateTracer` output is an empty stub; override it with
+        // the frame built from the state snapshot.
+        if r.geth_trace.is_some() {
+            if let Some(frame) = prestate_frame {
+                r.geth_trace = Some(GethTrace::PreStateTracer(frame));
+            }
+        }
 
         if r.receipt.tx_success() {
             GOOD_TPS_METER.mark(1);
@@ -363,6 +392,32 @@ impl ConsensusExecutionHandler {
         }
 
         Ok(())
+    }
+
+    /// Returns the prestate tracer config if the geth-trace virtual call
+    /// requests a `PreStateTracer` frame for this transaction.
+    fn prestate_tracer_config(
+        &self, transaction: &Arc<SignedTransaction>,
+        block_context: &BlockProcessContext,
+    ) -> Option<PreStateConfig> {
+        use alloy_rpc_types_trace::geth::{
+            GethDebugBuiltInTracerType::PreStateTracer,
+            GethDebugTracerType::BuiltInTracer,
+        };
+
+        let Some(VirtualCall::GethTrace(ref task)) =
+            block_context.epoch_context.virtual_call
+        else {
+            return None;
+        };
+        if !matches!(task.opts.tracer, Some(BuiltInTracer(PreStateTracer))) {
+            return None;
+        }
+        if !task.tx_hash.map_or(true, |hash| transaction.hash() == hash) {
+            return None;
+        }
+        // Already validated at the RPC layer (`validate_tracer_opts`).
+        task.opts.tracer_config.clone().into_pre_state_config().ok()
     }
 
     fn make_observer(
