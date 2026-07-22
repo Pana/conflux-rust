@@ -595,6 +595,9 @@ impl<Cost: CostType, const CANCUN: bool> Interpreter<Cost, CANCUN> {
         if let Err(e) = gasometer.verify_gas(&requirements.gas_cost) {
             return Err(InterpreterResult::Done(Err(e)));
         }
+        if let Some(address) = requirements.delegation_target {
+            context.trace_account_access(&address);
+        }
         self.mem.expand(requirements.memory_required_size);
         gasometer.current_mem_gas = requirements.memory_total_gas;
         gasometer.current_gas -= requirements.gas_cost;
@@ -727,6 +730,9 @@ impl<Cost: CostType, const CANCUN: bool> Interpreter<Cost, CANCUN> {
 
                 let create_gas = provided.expect("`provided` comes through Self::exec from `Gasometer::get_gas_cost_mem`; `gas_gas_mem_cost` guarantees `Some` when instruction is `CALL`/`CALLCODE`/`DELEGATECALL`/`CREATE`; this is `CREATE`; qed");
 
+                let contract_code = self.mem.read_slice(init_off, init_size);
+                context.trace_create_attempt(contract_code, &address_scheme);
+
                 if context.is_static_or_reentrancy() {
                     return Err(vm::Error::MutableCallInStaticContext);
                 }
@@ -741,8 +747,6 @@ impl<Cost: CostType, const CANCUN: bool> Interpreter<Cost, CANCUN> {
                     self.stack.push(U256::zero());
                     return Ok(InstructionResult::UnusedGas(create_gas));
                 }
-
-                let contract_code = self.mem.read_slice(init_off, init_size);
 
                 let create_result = context.create(
                     &create_gas.as_u256(),

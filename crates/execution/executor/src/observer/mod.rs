@@ -11,17 +11,21 @@ mod opcode_tracer;
 mod set_auth_tracer;
 mod storage_tracer;
 mod tracer_trait;
+mod tx_tracer;
 
 pub use as_tracer::AsTracer;
 pub use call_tracer::CallTracer;
-pub use cfx_parity_trace_types::AddressPocket;
+pub use cfx_parity_trace_types::{AddressPocket, SetAuth, SetAuthOutcome};
 pub use checkpoint_tracer::CheckpointTracer;
-pub use drain_trace::{DrainTrace, TraceDrainContext};
+pub use drain_trace::DrainTrace;
 pub use internal_transfer_tracer::InternalTransferTracer;
 pub use opcode_tracer::OpcodeTracer;
 pub use set_auth_tracer::SetAuthTracer;
 pub use storage_tracer::StorageTracer;
 pub use tracer_trait::TracerTrait;
+pub use tx_tracer::{
+    AccountSnapshot, TxEndContext, TxStartContext, TxStateView, TxTracer,
+};
 
 pub trait ExecutiveObserver: DrainTrace + AsTracer {}
 

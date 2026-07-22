@@ -1,13 +1,22 @@
-//! Builds geth `prestateTracer` frames from the executor's per-transaction
-//! touched-state snapshot, reusing the revm-inspectors builder for the exact
-//! geth default/diff-mode semantics (`retain_changed`, zero-storage removal,
-//! Create/SelfDestruct classification, `disableCode` / `disableStorage`).
+//! Builds geth `prestateTracer` frames from tracer-owned account and storage
+//! accesses plus the transaction-end state view. The revm-inspectors builder
+//! supplies the geth default/diff-mode shaping semantics (`retain_changed`,
+//! zero-storage removal, Create/SelfDestruct classification,
+//! `disableCode` / `disableStorage`).
 
 use crate::utils::{to_alloy_address, to_alloy_h256, to_alloy_u256};
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_trace::geth::{PreStateConfig, PreStateFrame};
-use cfx_executor::state::{AccountSnapshot, TxTouchedAccount};
-use cfx_types::Address as CfxAddress;
+use cfx_executor::observer::{
+    AccountSnapshot, CallTracer, OpcodeTracer, SetAuth, SetAuthOutcome,
+    SetAuthTracer, TxEndContext, TxStartContext, TxTracer,
+};
+use cfx_statedb::{Error as DbError, Result as DbResult};
+use cfx_types::{
+    u256_to_address_be, Address as CfxAddress, AddressSpaceUtil,
+    AddressWithSpace, BigEndianHash, Space, H256 as CfxH256, U256 as CfxU256,
+};
+use cfx_vm_types::{ActionParams, InterpreterInfo};
 use revm::{
     bytecode::Bytecode,
     context_interface::result::{
@@ -17,8 +26,233 @@ use revm::{
     state::{Account, AccountInfo, AccountStatus, EvmState, EvmStorageSlot},
     DatabaseRef,
 };
+use revm_bytecode::opcode;
 use revm_inspectors::tracing::GethTraceBuilder;
-use std::{collections::HashMap, convert::Infallible};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+};
+
+#[derive(Debug, Clone)]
+pub(crate) struct TouchedSlot {
+    pub key: CfxH256,
+    pub original: CfxU256,
+    pub present: CfxU256,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TxTouchedAccount {
+    pub pre: Option<AccountSnapshot>,
+    pub post: Option<AccountSnapshot>,
+    pub storage: Vec<TouchedSlot>,
+}
+
+/// Collects the accounts and storage slots needed by geth's prestate tracer
+/// and materializes the final frame at the transaction boundary.
+pub(crate) struct PrestateCollector {
+    config: PreStateConfig,
+    tx_space: Space,
+    accounts: HashSet<AddressWithSpace>,
+    tx_entry_code_account: Option<AddressWithSpace>,
+    slots: HashMap<AddressWithSpace, HashSet<CfxH256>>,
+    result: Option<PreStateFrame>,
+}
+
+impl PrestateCollector {
+    pub(crate) fn new(tx_space: Space, config: PreStateConfig) -> Self {
+        Self {
+            config,
+            tx_space,
+            accounts: Default::default(),
+            tx_entry_code_account: None,
+            slots: Default::default(),
+            result: None,
+        }
+    }
+
+    pub(crate) fn into_frame(self) -> DbResult<PreStateFrame> {
+        self.result.ok_or_else(|| {
+            DbError::Msg(
+                "prestate tracer drained before transaction end".into(),
+            )
+        })
+    }
+}
+
+impl TxTracer for PrestateCollector {
+    fn tx_start(&mut self, context: &TxStartContext<'_>) {
+        let tx = context.tx;
+        self.accounts.insert(tx.sender());
+        match tx.action() {
+            primitives::transaction::Action::Call(address) => {
+                let address = address.with_space(tx.space());
+                self.accounts.insert(address);
+                self.tx_entry_code_account = Some(address);
+            }
+            primitives::transaction::Action::Create => {
+                if let Some(address) = tx.cal_created_address() {
+                    self.accounts.insert(address);
+                }
+            }
+        }
+        self.accounts
+            .insert(context.env.author.with_space(tx.space()));
+        if let Some(authorizations) = tx.authorization_list() {
+            for authorization in authorizations {
+                if let Some(authority) = authorization.authority() {
+                    self.accounts.insert(authority.with_space(tx.space()));
+                }
+            }
+        }
+    }
+
+    fn tx_end(&mut self, context: &TxEndContext<'_>) -> DbResult<()> {
+        let diff_mode = self.config.diff_mode.unwrap_or(false);
+        let mut touched = HashMap::new();
+        let mut accounts = self.accounts.clone();
+        if let Some(address) = self.tx_entry_code_account {
+            if address.space == self.tx_space {
+                if let Some(target) =
+                    context.state.pre_account(&address)?.and_then(|snapshot| {
+                        snapshot.code.as_deref().and_then(
+                            primitives::transaction::extract_7702_payload,
+                        )
+                    })
+                {
+                    accounts.insert(target.with_space(address.space));
+                }
+            }
+        }
+
+        for address in &accounts {
+            if address.space != self.tx_space {
+                continue;
+            }
+            let pre = context.state.pre_account(address)?;
+            let post = if diff_mode {
+                context.state.post_account(address)?
+            } else {
+                pre.clone()
+            };
+            let mut storage = Vec::new();
+            if let Some(keys) = self.slots.get(address) {
+                for key in keys {
+                    let original = context.state.pre_storage(address, key)?;
+                    storage.push(TouchedSlot {
+                        key: *key,
+                        original,
+                        present: if !diff_mode {
+                            original
+                        } else if post.is_some() {
+                            context.state.post_storage(address, key)?
+                        } else {
+                            CfxU256::zero()
+                        },
+                    });
+                }
+            }
+            touched.insert(
+                address.address,
+                TxTouchedAccount { pre, post, storage },
+            );
+        }
+        self.result = Some(build_prestate_frame(touched, &self.config));
+        Ok(())
+    }
+}
+
+impl SetAuthTracer for PrestateCollector {
+    fn record_set_auth(&mut self, action: SetAuth) {
+        if action.outcome != SetAuthOutcome::Success {
+            return;
+        }
+        if let Some(author) = action.author {
+            self.accounts.insert(author.with_space(action.space));
+        }
+    }
+}
+
+impl CallTracer for PrestateCollector {
+    fn record_call(&mut self, params: &ActionParams) {
+        self.accounts
+            .insert(params.address.with_space(params.space));
+        self.accounts
+            .insert(params.code_address.with_space(params.space));
+        self.accounts.insert(params.sender.with_space(params.space));
+    }
+
+    fn record_create(&mut self, params: &ActionParams) {
+        self.accounts
+            .insert(params.address.with_space(params.space));
+        self.accounts.insert(params.sender.with_space(params.space));
+    }
+
+    fn record_create_attempt(&mut self, space: Space, address: &CfxAddress) {
+        self.accounts.insert(address.with_space(space));
+    }
+
+    fn do_trace_create_attempt(&self, enabled: &mut bool) { *enabled = true; }
+}
+
+impl OpcodeTracer for PrestateCollector {
+    fn do_trace_opcode(&self, enabled: &mut bool) { *enabled = true; }
+
+    fn record_account_access(&mut self, space: Space, address: &CfxAddress) {
+        self.accounts.insert(address.with_space(space));
+    }
+
+    fn step(&mut self, interp: &dyn InterpreterInfo) {
+        let stack = interp.stack();
+        let top = |index: usize| stack.get(stack.len().checked_sub(index + 1)?);
+        match interp.current_opcode() {
+            opcode::SLOAD | opcode::SSTORE => {
+                let address =
+                    interp.contract_address().with_space(self.tx_space);
+                self.accounts.insert(address);
+                if let Some(key) = top(0) {
+                    self.slots
+                        .entry(address)
+                        .or_default()
+                        .insert(BigEndianHash::from_uint(key));
+                }
+            }
+            opcode::BALANCE
+            | opcode::EXTCODESIZE
+            | opcode::EXTCODECOPY
+            | opcode::EXTCODEHASH
+            | opcode::SELFDESTRUCT => {
+                if let Some(address) = top(0) {
+                    self.accounts.insert(
+                        u256_to_address_be(*address).with_space(self.tx_space),
+                    );
+                }
+            }
+            opcode::CALL
+            | opcode::CALLCODE
+            | opcode::DELEGATECALL
+            | opcode::STATICCALL => {
+                // Match geth's prestate tracer: an underflowing call with only
+                // the target near the top did not access that account.
+                if stack.len() >= 5 {
+                    if let Some(address) = top(1) {
+                        let address = u256_to_address_be(*address)
+                            .with_space(self.tx_space);
+                        self.accounts.insert(address);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn selfdestruct(
+        &mut self, space: Space, contract: &CfxAddress, target: &CfxAddress,
+        _value: CfxU256,
+    ) {
+        self.accounts.insert(contract.with_space(space));
+        self.accounts.insert(target.with_space(space));
+    }
+}
 
 /// In-memory `DatabaseRef` answering pre-transaction lookups from the
 /// extracted snapshots. Code is embedded in `AccountInfo.code`, so the
@@ -135,7 +369,7 @@ pub(crate) fn build_prestate_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cfx_executor::state::TouchedSlot;
+    use cfx_executor::observer::TxStateView;
     use cfx_types::{H256 as CfxH256, U256 as CfxU256};
     use revm::primitives::KECCAK_EMPTY;
 
@@ -172,6 +406,152 @@ mod tests {
             diff_mode: Some(true),
             ..Default::default()
         }
+    }
+
+    struct FakeTxStateView;
+
+    impl TxStateView for FakeTxStateView {
+        fn pre_account(
+            &self, _address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            Ok(Some(eoa(100, 1)))
+        }
+
+        fn post_account(
+            &self, _address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            Ok(Some(eoa(90, 2)))
+        }
+
+        fn pre_storage(
+            &self, _address: &AddressWithSpace, _key: &CfxH256,
+        ) -> DbResult<CfxU256> {
+            Ok(CfxU256::zero())
+        }
+
+        fn post_storage(
+            &self, _address: &AddressWithSpace, _key: &CfxH256,
+        ) -> DbResult<CfxU256> {
+            Ok(CfxU256::zero())
+        }
+    }
+
+    #[test]
+    fn collector_materializes_diff_at_transaction_end() {
+        let address = addr(1);
+        let mut collector =
+            PrestateCollector::new(Space::Ethereum, diff_config());
+        collector.accounts.insert(address.with_evm_space());
+
+        collector
+            .tx_end(&TxEndContext {
+                state: &FakeTxStateView,
+            })
+            .unwrap();
+
+        let PreStateFrame::Diff(diff) = collector.into_frame().unwrap() else {
+            panic!("expected diff mode")
+        };
+        let address = to_alloy_address(address);
+        assert_eq!(diff.pre[&address].balance, Some(U256::from(100)));
+        assert_eq!(diff.post[&address].balance, Some(U256::from(90)));
+    }
+
+    #[test]
+    fn collector_records_create_attempt_before_frame_creation() {
+        let address = addr(1);
+        let mut collector =
+            PrestateCollector::new(Space::Ethereum, PreStateConfig::default());
+
+        collector.record_create_attempt(Space::Ethereum, &address);
+
+        assert!(collector.accounts.contains(&address.with_evm_space()));
+    }
+
+    struct DelegatedTxStateView {
+        authority: AddressWithSpace,
+        pre_target: AddressWithSpace,
+        post_target: AddressWithSpace,
+    }
+
+    impl TxStateView for DelegatedTxStateView {
+        fn pre_account(
+            &self, address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            if address == &self.authority {
+                let mut code =
+                    primitives::transaction::CODE_PREFIX_7702.to_vec();
+                code.extend_from_slice(self.pre_target.address.as_bytes());
+                Ok(Some(contract(0, &code)))
+            } else if address == &self.pre_target
+                || address == &self.post_target
+            {
+                Ok(Some(contract(1, b"\x60\x00")))
+            } else {
+                Ok(None)
+            }
+        }
+
+        fn post_account(
+            &self, address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            if address == &self.authority {
+                let mut code =
+                    primitives::transaction::CODE_PREFIX_7702.to_vec();
+                code.extend_from_slice(self.post_target.address.as_bytes());
+                Ok(Some(contract(0, &code)))
+            } else {
+                self.pre_account(address)
+            }
+        }
+
+        fn pre_storage(
+            &self, _address: &AddressWithSpace, _key: &CfxH256,
+        ) -> DbResult<CfxU256> {
+            Ok(CfxU256::zero())
+        }
+
+        fn post_storage(
+            &self, _address: &AddressWithSpace, _key: &CfxH256,
+        ) -> DbResult<CfxU256> {
+            Ok(CfxU256::zero())
+        }
+    }
+
+    #[test]
+    fn tx_entry_uses_pre_transaction_delegation_target() {
+        let authority = addr(1).with_evm_space();
+        let pre_target = addr(2).with_evm_space();
+        let post_target = addr(3).with_evm_space();
+        let state = DelegatedTxStateView {
+            authority,
+            pre_target,
+            post_target,
+        };
+        let mut collector =
+            PrestateCollector::new(Space::Ethereum, PreStateConfig::default());
+        collector.accounts.insert(authority);
+        collector.tx_entry_code_account = Some(authority);
+
+        collector.tx_end(&TxEndContext { state: &state }).unwrap();
+
+        let PreStateFrame::Default(frame) = collector.into_frame().unwrap()
+        else {
+            panic!("expected default mode")
+        };
+        assert!(frame.0.contains_key(&to_alloy_address(pre_target.address)));
+        assert!(!frame.0.contains_key(&to_alloy_address(post_target.address)));
+    }
+
+    #[test]
+    fn collector_records_delegation_target_at_access_time() {
+        let target = addr(2);
+        let mut collector =
+            PrestateCollector::new(Space::Ethereum, PreStateConfig::default());
+
+        collector.record_account_access(Space::Ethereum, &target);
+
+        assert!(collector.accounts.contains(&target.with_evm_space()));
     }
 
     #[test]

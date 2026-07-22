@@ -112,6 +112,19 @@ pub trait Context {
         address: CreateContractAddressType,
     ) -> DbResult<::std::result::Result<ContractCreateResult, TrapKind>>;
 
+    /// Best-effort notification of a contract creation attempt before balance,
+    /// depth, and conflict checks can prevent a child frame from being created.
+    ///
+    /// Implementations must not let tracing failures affect VM execution.
+    fn trace_create_attempt(
+        &mut self, _code: &[u8], _address: &CreateContractAddressType,
+    ) {
+    }
+
+    /// Notifies observers about an account access discovered while preparing
+    /// an opcode.
+    fn trace_account_access(&mut self, _address: &Address) {}
+
     /// Message call.
     ///
     /// Returns Err, if we run out of gas.

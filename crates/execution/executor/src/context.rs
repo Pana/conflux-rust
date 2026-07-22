@@ -160,6 +160,18 @@ impl<'a> Context<'a> {
 
         Ok(BigEndianHash::from_uint(&state_res))
     }
+
+    fn contract_address(
+        &self, address_scheme: &CreateContractAddressType, code: &[u8],
+    ) -> cfx_statedb::Result<(AddressWithSpace, H256)> {
+        let caller = self.origin.address.with_space(self.space);
+        Ok(cal_contract_address_with_space(
+            address_scheme.clone(),
+            &caller,
+            &self.state.nonce(&caller)?,
+            code,
+        ))
+    }
 }
 
 impl<'a> ContextTrait for Context<'a> {
@@ -262,24 +274,37 @@ impl<'a> ContextTrait for Context<'a> {
         }
     }
 
+    fn trace_create_attempt(
+        &mut self, code: &[u8], address_scheme: &CreateContractAddressType,
+    ) {
+        let mut enabled = false;
+        self.tracer.do_trace_create_attempt(&mut enabled);
+        if !enabled {
+            return;
+        }
+        // Address derivation may read state. Keep this hook observational: the
+        // normal CREATE path decides whether such an error affects execution.
+        if let Ok((address, _)) = self.contract_address(address_scheme, code) {
+            self.tracer
+                .record_create_attempt(self.space, &address.address);
+        }
+    }
+
+    fn trace_account_access(&mut self, address: &Address) {
+        self.tracer.record_account_access(self.space, address);
+    }
+
     fn create(
         &mut self, gas: &U256, value: &U256, code: &[u8],
         address_scheme: CreateContractAddressType,
     ) -> cfx_statedb::Result<std::result::Result<ContractCreateResult, TrapKind>>
     {
-        let caller = AddressWithSpace {
-            address: self.origin.address,
-            space: self.space,
-        };
+        let caller = self.origin.address.with_space(self.space);
 
         let create_type = CreateType::from_address_scheme(&address_scheme);
         // create new contract address
-        let (address_with_space, code_hash) = cal_contract_address_with_space(
-            address_scheme,
-            &caller,
-            &self.state.nonce(&caller)?,
-            &code,
-        );
+        let (address_with_space, code_hash) =
+            self.contract_address(&address_scheme, code)?;
 
         let address = address_with_space.address;
 

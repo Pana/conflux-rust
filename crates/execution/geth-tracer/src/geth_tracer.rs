@@ -1,6 +1,6 @@
 use crate::{
     fourbyte::FourByteInspector,
-    prestate::build_prestate_frame,
+    prestate::PrestateCollector,
     tracing_inspector::TracingInspector,
     types::TxExecContext,
     utils::{to_alloy_address, to_alloy_h256, to_alloy_u256, to_call_kind},
@@ -10,20 +10,18 @@ use alloy_primitives::{Address, Bytes, LogData};
 use alloy_rpc_types_trace::geth::{
     CallConfig, GethDebugBuiltInTracerType, GethDebugBuiltInTracerType::*,
     GethDebugTracerType, GethDebugTracingOptions, GethTrace, NoopFrame,
-    PreStateConfig,
 };
 use cfx_executor::{
     machine::Machine,
     observer::{
         CallTracer, CheckpointTracer, DrainTrace, InternalTransferTracer,
-        OpcodeTracer, SetAuthTracer, StorageTracer, TraceDrainContext,
+        OpcodeTracer, SetAuth, SetAuthTracer, StorageTracer, TxEndContext,
+        TxStartContext, TxTracer,
     },
     stack::{FrameResult, FrameReturn},
-    state::PreStateStorageAccesses,
 };
-use cfx_types::{AddressSpaceUtil, BigEndianHash, Space, H160, H256};
+use cfx_types::{Space, H160, H256};
 use cfx_vm_types::{ActionParams, CallType, Error, InterpreterInfo};
-use revm_bytecode::opcode;
 use revm_inspectors::tracing::types::{CallLog, TraceMemberOrder};
 use revm_interpreter::{Gas, InstructionResult, InterpreterResult};
 
@@ -41,8 +39,7 @@ pub struct GethTracer {
     depth: usize,
     //
     opts: GethDebugTracingOptions,
-    tx_space: Space,
-    prestate_slots: PreStateStorageAccesses,
+    prestate_collector: Option<PrestateCollector>,
     // gas stack, used to trace gas_spent in call_result/create_result
     pub gas_stack: Vec<u64>,
 }
@@ -54,6 +51,7 @@ impl GethTracer {
     ) -> Self {
         let tx_gas_limit = tx_exec_context.tx_gas_limit;
         let tx_space = tx_exec_context.space;
+        let mut prestate_collector = None;
         let config = match opts.tracer {
             Some(GethDebugTracerType::BuiltInTracer(builtin_tracer)) => {
                 match builtin_tracer {
@@ -75,6 +73,8 @@ impl GethTracer {
                             .clone()
                             .into_pre_state_config()
                             .expect("should success");
+                        prestate_collector =
+                            Some(PrestateCollector::new(tx_space, c.clone()));
                         TracingInspectorConfig::from_geth_prestate_config(&c)
                     }
                     Erc7562Tracer => TracingInspectorConfig::none(),
@@ -93,8 +93,7 @@ impl GethTracer {
             depth: 0,
             gas_left: tx_gas_limit,
             opts,
-            tx_space,
-            prestate_slots: Default::default(),
+            prestate_collector,
             gas_stack: Vec::new(),
         }
     }
@@ -118,16 +117,8 @@ impl GethTracer {
         self.opts.tracer_config.clone().into_call_config().ok()
     }
 
-    fn prestate_config(&self) -> Option<PreStateConfig> {
-        self.opts.tracer_config.clone().into_pre_state_config().ok()
-    }
-
     pub fn is_fourbyte_tracer(&self) -> bool {
         self.tracer_type() == Some(FourByteTracer)
-    }
-
-    fn is_prestate_tracer(&self) -> bool {
-        self.tracer_type() == Some(PreStateTracer)
     }
 
     pub fn gas_used(&self) -> u64 { self.tx_gas_limit - self.gas_left }
@@ -184,19 +175,31 @@ impl GethTracer {
 
 impl DrainTrace for GethTracer {
     fn drain_trace(
-        self, context: &TraceDrainContext<'_>, map: &mut typemap::ShareDebugMap,
+        mut self, map: &mut typemap::ShareDebugMap,
     ) -> cfx_statedb::Result<()> {
-        let trace = if self.is_prestate_tracer() {
-            let config = self.prestate_config().expect("should have config");
-            let touched = context.state.collect_tx_touched_state(
-                self.tx_space,
-                &self.prestate_slots,
-            )?;
-            GethTrace::PreStateTracer(build_prestate_frame(touched, &config))
+        let trace = if let Some(collector) = self.prestate_collector.take() {
+            GethTrace::PreStateTracer(collector.into_frame()?)
         } else {
             self.drain_without_state()
         };
         map.insert::<GethTraceKey>(trace);
+        Ok(())
+    }
+}
+
+impl TxTracer for GethTracer {
+    fn tx_start(&mut self, context: &TxStartContext<'_>) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.tx_start(context);
+        }
+    }
+
+    fn tx_end(
+        &mut self, context: &TxEndContext<'_>,
+    ) -> cfx_statedb::Result<()> {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.tx_end(context)?;
+        }
         Ok(())
     }
 }
@@ -213,10 +216,19 @@ impl InternalTransferTracer for GethTracer {}
 
 impl StorageTracer for GethTracer {}
 
-impl SetAuthTracer for GethTracer {}
+impl SetAuthTracer for GethTracer {
+    fn record_set_auth(&mut self, action: SetAuth) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.record_set_auth(action);
+        }
+    }
+}
 
 impl CallTracer for GethTracer {
     fn record_call(&mut self, params: &ActionParams) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.record_call(params);
+        }
         if self.is_fourbyte_tracer() {
             self.fourbyte_inspector.record_call(params);
             return;
@@ -301,6 +313,9 @@ impl CallTracer for GethTracer {
     }
 
     fn record_create(&mut self, params: &ActionParams) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.record_create(params);
+        }
         if self.is_fourbyte_tracer() {
             return;
         }
@@ -332,6 +347,20 @@ impl CallTracer for GethTracer {
         );
 
         self.depth += 1;
+    }
+
+    fn record_create_attempt(
+        &mut self, space: Space, address: &cfx_types::Address,
+    ) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.record_create_attempt(space, address);
+        }
+    }
+
+    fn do_trace_create_attempt(&self, enabled: &mut bool) {
+        if let Some(collector) = &self.prestate_collector {
+            collector.do_trace_create_attempt(enabled);
+        }
     }
 
     fn record_create_result(&mut self, result: &FrameResult) {
@@ -378,8 +407,19 @@ impl CallTracer for GethTracer {
 
 impl OpcodeTracer for GethTracer {
     fn do_trace_opcode(&self, enabled: &mut bool) {
-        if self.inner.config.record_steps || self.is_prestate_tracer() {
+        if self.inner.config.record_steps {
             *enabled |= true;
+        }
+        if let Some(collector) = &self.prestate_collector {
+            collector.do_trace_opcode(enabled);
+        }
+    }
+
+    fn record_account_access(
+        &mut self, space: Space, address: &cfx_types::Address,
+    ) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.record_account_access(space, address);
         }
     }
 
@@ -394,16 +434,8 @@ impl OpcodeTracer for GethTracer {
             .gas_inspector
             .set_gas_remainning(interp.gas_remainning().as_u64());
 
-        if self.is_prestate_tracer()
-            && matches!(interp.current_opcode(), opcode::SLOAD | opcode::SSTORE)
-        {
-            if let Some(key) = interp.stack().last() {
-                let key: H256 = BigEndianHash::from_uint(key);
-                self.prestate_slots
-                    .entry(interp.contract_address().with_space(self.tx_space))
-                    .or_default()
-                    .insert(key);
-            }
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.step(interp);
         }
 
         if self.inner.config.record_steps {
@@ -456,9 +488,12 @@ impl OpcodeTracer for GethTracer {
     }
 
     fn selfdestruct(
-        &mut self, space: Space, _contract: &cfx_types::Address,
-        target: &cfx_types::Address, _value: cfx_types::U256,
+        &mut self, space: Space, contract: &cfx_types::Address,
+        target: &cfx_types::Address, value: cfx_types::U256,
     ) {
+        if let Some(collector) = &mut self.prestate_collector {
+            collector.selfdestruct(space, contract, target, value);
+        }
         if self.is_fourbyte_tracer() {
             return;
         }

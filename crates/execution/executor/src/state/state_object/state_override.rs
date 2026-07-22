@@ -12,6 +12,10 @@ impl State {
     ) -> DbResult<Self> {
         let mut state = Self::new(db)?;
         state.apply_override(state_override, space)?;
+        // Overrides define the state at the transaction boundary. Move them
+        // into the same baseline used for preceding transactions in an epoch
+        // so tracers can distinguish them from changes made by this call.
+        state.commit_cache(false);
         Ok(state)
     }
 

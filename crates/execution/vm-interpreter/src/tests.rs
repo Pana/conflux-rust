@@ -1294,6 +1294,49 @@ fn test_calls(factory: super::Factory) {
     assert_eq!(ctx.calls.len(), 2);
 }
 
+evm_test! {test_call_traces_current_delegation: test_call_traces_current_delegation_int}
+fn test_call_traces_current_delegation(factory: super::Factory) {
+    let (params, mut ctx, target) = delegated_staticcall(U256::from(100_000));
+    ctx.depth = ctx.spec.max_depth;
+
+    let vm = factory.create(params, ctx.spec(), ctx.depth());
+    test_finalize(vm.exec(&mut ctx).ok().unwrap()).unwrap();
+
+    assert!(ctx.account_accesses.contains(&target));
+    assert!(ctx.calls.is_empty());
+}
+
+evm_test! {test_oog_call_does_not_trace_delegation: test_oog_call_does_not_trace_delegation_int}
+fn test_oog_call_does_not_trace_delegation(factory: super::Factory) {
+    let (params, mut ctx, target) = delegated_staticcall(U256::from(100));
+
+    let vm = factory.create(params, ctx.spec(), ctx.depth());
+    assert!(test_finalize(vm.exec(&mut ctx).ok().unwrap()).is_err());
+
+    assert!(!ctx.account_accesses.contains(&target));
+}
+
+fn delegated_staticcall(gas: U256) -> (ActionParams, MockContext, Address) {
+    let authority = Address::from_low_u64_be(0x998);
+    let target = Address::from_low_u64_be(0x123);
+    let mut code = vec![0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x73];
+    code.extend_from_slice(authority.as_bytes());
+    code.extend_from_slice(&[0x61, 0xff, 0xff, 0xfa, 0x00]);
+
+    let mut params = ActionParams::default();
+    params.gas = gas;
+    params.code = Some(Arc::new(code));
+
+    let mut ctx = MockContext::new_spec();
+    ctx.spec.cip645 = vm::CIP645Spec::new(true);
+    ctx.spec.cip7702 = true;
+    let mut designation = primitives::transaction::CODE_PREFIX_7702.to_vec();
+    designation.extend_from_slice(target.as_bytes());
+    ctx.codes.insert(authority, Arc::new(designation));
+
+    (params, ctx, target)
+}
+
 evm_test! {test_create_in_staticcall: test_create_in_staticcall_int}
 fn test_create_in_staticcall(factory: super::Factory) {
     let code = "600060006064f000".from_hex().unwrap();

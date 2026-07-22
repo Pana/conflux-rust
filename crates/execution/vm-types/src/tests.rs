@@ -77,6 +77,7 @@ pub struct MockContext {
     pub balances: HashMap<Address, U256>,
     pub tracing: bool,
     pub is_static: bool,
+    pub account_accesses: HashSet<Address>,
 
     chain_id: u64,
 }
@@ -173,6 +174,10 @@ impl Context for MockContext {
         // This code is for test only. So we pick an arbitrary revert reason
         // here.
         Ok(Ok(ContractCreateResult::Failed(Error::OutOfGas)))
+    }
+
+    fn trace_account_access(&mut self, address: &Address) {
+        self.account_accesses.insert(*address);
     }
 
     fn call(

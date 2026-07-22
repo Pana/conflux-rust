@@ -9,6 +9,9 @@ use impl_trait_for_tuples::impl_for_tuples;
 pub trait OpcodeTracer {
     fn do_trace_opcode(&self, _enabled: &mut bool) {}
 
+    /// Records an account access discovered while preparing an opcode.
+    fn record_account_access(&mut self, _space: Space, _address: &Address) {}
+
     /// Called before the interpreter is initialized.
     #[inline]
     fn initialize_interp(&mut self, gas_limit: U256) { let _ = gas_limit; }

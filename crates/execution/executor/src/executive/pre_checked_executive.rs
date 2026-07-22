@@ -43,6 +43,12 @@ pub(super) struct PreCheckedExecutive<'a, O: ExecutiveObserver> {
 
 impl<'a, O: ExecutiveObserver> PreCheckedExecutive<'a, O> {
     pub(super) fn execute_transaction(mut self) -> DbResult<ExecutionOutcome> {
+        self.observer.as_tracer().tx_start(
+            &crate::executive_observer::TxStartContext {
+                tx: self.tx,
+                env: self.context.env,
+            },
+        );
         let nonce_overflow = self.inc_sender_nonce()?;
         if nonce_overflow {
             let sender = self.tx.sender;

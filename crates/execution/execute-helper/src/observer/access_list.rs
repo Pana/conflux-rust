@@ -1,9 +1,6 @@
-use cfx_executor::{
-    executive_observer::TraceDrainContext,
-    observer::{
-        CallTracer, CheckpointTracer, DrainTrace, InternalTransferTracer,
-        OpcodeTracer, SetAuthTracer, StorageTracer,
-    },
+use cfx_executor::observer::{
+    CallTracer, CheckpointTracer, DrainTrace, InternalTransferTracer,
+    OpcodeTracer, SetAuthTracer, StorageTracer, TxTracer,
 };
 use cfx_types::{u256_to_address_be, u256_to_h256_be, Address, H256};
 use cfx_vm_interpreter::instructions::Instruction;
@@ -90,13 +87,13 @@ impl AccessListInspector {
 }
 
 impl DrainTrace for AccessListInspector {
-    fn drain_trace(
-        self, _context: &TraceDrainContext<'_>, map: &mut ShareDebugMap,
-    ) -> cfx_statedb::Result<()> {
+    fn drain_trace(self, map: &mut ShareDebugMap) -> cfx_statedb::Result<()> {
         map.insert::<AccessListKey>(self.into_access_list());
         Ok(())
     }
 }
+
+impl TxTracer for AccessListInspector {}
 
 pub struct AccessListKey;
 

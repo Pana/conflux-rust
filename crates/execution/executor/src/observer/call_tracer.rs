@@ -1,4 +1,5 @@
 use crate::stack::FrameResult;
+use cfx_types::{Address, Space};
 use cfx_vm_types::ActionParams;
 
 use impl_tools::autoimpl;
@@ -16,6 +17,13 @@ pub trait CallTracer {
 
     /// Prepares create trace for given params.
     fn record_create(&mut self, params: &ActionParams) {}
+
+    /// Records a create destination before conflict checks can abort frame
+    /// creation.
+    fn record_create_attempt(&mut self, space: Space, address: &Address) {}
+
+    /// Enables create-attempt address derivation for interested tracers.
+    fn do_trace_create_attempt(&self, enabled: &mut bool) {}
 
     /// Prepares create result trace
     fn record_create_result(&mut self, result: &FrameResult) {}

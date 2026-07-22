@@ -3,8 +3,7 @@
 // See http://www.gnu.org/licenses/
 
 use crate::{
-    executive_observer::{ExecutiveObserver, TraceDrainContext},
-    state::State,
+    executive_observer::{ExecutiveObserver, TxEndContext, TxStateView},
     substate::Substate,
 };
 use cfx_bytes::Bytes;
@@ -209,9 +208,99 @@ impl Executed {
 }
 
 pub fn make_ext_result<O: ExecutiveObserver>(
-    observer: O, state: &State,
+    mut observer: O, state: &dyn TxStateView,
 ) -> cfx_statedb::Result<ShareDebugMap> {
+    observer.as_tracer().tx_end(&TxEndContext { state })?;
     let mut ext_result = ShareDebugMap::custom();
-    observer.drain_trace(&TraceDrainContext { state }, &mut ext_result)?;
+    observer.drain_trace(&mut ext_result)?;
     Ok(ext_result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executive_observer::{
+        AccountSnapshot, AsTracer, CallTracer, CheckpointTracer, DrainTrace,
+        InternalTransferTracer, OpcodeTracer, SetAuthTracer, StorageTracer,
+        TracerTrait, TxEndContext, TxStartContext, TxStateView, TxTracer,
+    };
+    use cfx_statedb::Result as DbResult;
+    use cfx_types::{AddressWithSpace, H256};
+
+    struct LifecycleKey;
+
+    impl typemap::Key for LifecycleKey {
+        type Value = &'static str;
+    }
+
+    struct FakeStateView;
+
+    impl TxStateView for FakeStateView {
+        fn pre_account(
+            &self, _address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            unreachable!()
+        }
+
+        fn post_account(
+            &self, _address: &AddressWithSpace,
+        ) -> DbResult<Option<AccountSnapshot>> {
+            unreachable!()
+        }
+
+        fn pre_storage(
+            &self, _address: &AddressWithSpace, _key: &H256,
+        ) -> DbResult<U256> {
+            unreachable!()
+        }
+
+        fn post_storage(
+            &self, _address: &AddressWithSpace, _key: &H256,
+        ) -> DbResult<U256> {
+            unreachable!()
+        }
+    }
+
+    struct LifecycleObserver {
+        ended: bool,
+    }
+
+    impl AsTracer for LifecycleObserver {
+        fn as_tracer<'a>(&'a mut self) -> Box<dyn 'a + TracerTrait> {
+            Box::new(self)
+        }
+    }
+
+    impl CallTracer for LifecycleObserver {}
+    impl CheckpointTracer for LifecycleObserver {}
+    impl InternalTransferTracer for LifecycleObserver {}
+    impl OpcodeTracer for LifecycleObserver {}
+    impl SetAuthTracer for LifecycleObserver {}
+    impl StorageTracer for LifecycleObserver {}
+
+    impl TxTracer for LifecycleObserver {
+        fn tx_start(&mut self, _context: &TxStartContext<'_>) {}
+
+        fn tx_end(&mut self, _context: &TxEndContext<'_>) -> DbResult<()> {
+            self.ended = true;
+            Ok(())
+        }
+    }
+
+    impl DrainTrace for LifecycleObserver {
+        fn drain_trace(self, map: &mut ShareDebugMap) -> DbResult<()> {
+            assert!(self.ended, "tx_end must run before drain_trace");
+            map.insert::<LifecycleKey>("ended-before-drain");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transaction_end_runs_before_state_free_drain() {
+        let result =
+            make_ext_result(LifecycleObserver { ended: false }, &FakeStateView)
+                .unwrap();
+
+        assert_eq!(result.get::<LifecycleKey>(), Some(&"ended-before-drain"));
+    }
 }

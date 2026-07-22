@@ -1,111 +1,21 @@
-//! Per-transaction touched-state extraction for the geth `prestateTracer`.
+//! Transaction-boundary state view used by tracers.
 //!
-//! Between `transact()` and `update_state_post_tx_execution()`, `State.cache`
-//! holds exactly the accounts loaded by the executed transaction (the
-//! analogue of revm's `ResultAndState.state`). The values before the
-//! transaction come from `committed_cache` — the state left by preceding
-//! transactions of the same epoch — with the backing db as fallback.
+//! Pre-transaction values come from `committed_cache` — the state left by
+//! preceding transactions of the same epoch — with the backing db as fallback.
+//! Post-transaction values come from the active transaction cache.
 
 use super::State;
-use crate::state::overlay_account::OverlayAccount;
+use crate::{
+    executive_observer::{AccountSnapshot, TxStateView},
+    state::overlay_account::OverlayAccount,
+};
 use cfx_bytes::Bytes;
 use cfx_statedb::{Result as DbResult, StateDbExt};
-use cfx_types::{Address, AddressWithSpace, Space, H256, U256};
+use cfx_types::{AddressWithSpace, H256, U256};
 use keccak_hash::KECCAK_EMPTY;
 use primitives::{StorageKey, StorageValue};
-use std::collections::{HashMap, HashSet};
-
-/// Storage slots observed by a tracer during one transaction. This access
-/// set is intentionally owned by the tracer so checkpoint reverts cannot
-/// remove entries from it.
-pub type PreStateStorageAccesses = HashMap<AddressWithSpace, HashSet<H256>>;
-
-/// Basic fields of an account at a fixed point in time.
-#[derive(Debug, Clone)]
-pub struct AccountSnapshot {
-    pub balance: U256,
-    pub nonce: U256,
-    pub code_hash: H256,
-    pub code: Option<Bytes>,
-}
-
-/// A storage slot accessed by the transaction.
-#[derive(Debug, Clone)]
-pub struct TouchedSlot {
-    pub key: H256,
-    /// Value at transaction start.
-    pub original: U256,
-    /// Value at transaction end.
-    pub present: U256,
-}
-
-/// Pre/post images of one account touched by a transaction.
-#[derive(Debug, Clone)]
-pub struct TxTouchedAccount {
-    /// `None` = the account did not exist before the transaction.
-    pub pre: Option<AccountSnapshot>,
-    /// `None` = the account does not exist after the transaction.
-    pub post: Option<AccountSnapshot>,
-    pub storage: Vec<TouchedSlot>,
-}
 
 impl State {
-    /// Collects every account of the given space loaded by the transaction
-    /// just executed, along with its accessed storage slots.
-    ///
-    /// Must be called after `transact()` returns and BEFORE
-    /// `update_state_post_tx_execution()` (which drains `cache`).
-    pub fn collect_tx_touched_state(
-        &self, space: Space, accessed_slots: &PreStateStorageAccesses,
-    ) -> DbResult<HashMap<Address, TxTouchedAccount>> {
-        let cache = self.cache.read();
-        let mut touched = HashMap::with_capacity(cache.len());
-        for (addr, entry) in cache.iter() {
-            if addr.space != space {
-                continue;
-            }
-            let (post, storage) = match entry.account() {
-                Some(acc) => {
-                    let post = if acc.removed_without_update() {
-                        None
-                    } else {
-                        Some(self.snapshot_account(addr, acc)?)
-                    };
-                    (
-                        post,
-                        self.touched_slots(
-                            addr,
-                            acc,
-                            accessed_slots.get(addr),
-                        )?,
-                    )
-                }
-                // Loaded but absent from the db (revm's
-                // `LoadedAsNotExisting`).
-                None => (
-                    None,
-                    accessed_slots
-                        .get(addr)
-                        .map(|slots| {
-                            slots
-                                .iter()
-                                .map(|key| TouchedSlot {
-                                    key: *key,
-                                    original: U256::zero(),
-                                    present: U256::zero(),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                ),
-            };
-            let pre = self.pre_tx_snapshot(addr)?;
-            touched
-                .insert(addr.address, TxTouchedAccount { pre, post, storage });
-        }
-        Ok(touched)
-    }
-
     /// Account state before the transaction: `committed_cache` holds the
     /// state left by the preceding transactions of the same epoch; on miss
     /// the account has not been modified in this epoch and is read from the
@@ -166,30 +76,6 @@ impl State {
             .map(|info| (*info.code).clone()))
     }
 
-    fn touched_slots(
-        &self, address: &AddressWithSpace, account: &OverlayAccount,
-        accessed_slots: Option<&HashSet<H256>>,
-    ) -> DbResult<Vec<TouchedSlot>> {
-        let Some(accessed_slots) = accessed_slots else {
-            return Ok(vec![]);
-        };
-
-        let mut slots = Vec::with_capacity(accessed_slots.len());
-        for key in accessed_slots {
-            let original = match account.origin_storage_at(key.as_bytes()) {
-                Some(value) => value,
-                None => self.storage_from_db(address, key.as_bytes())?,
-            };
-            let present = account.storage_at(&self.db, key.as_bytes())?;
-            slots.push(TouchedSlot {
-                key: *key,
-                original,
-                present,
-            });
-        }
-        Ok(slots)
-    }
-
     fn storage_from_db(
         &self, address: &AddressWithSpace, key: &[u8],
     ) -> DbResult<U256> {
@@ -199,5 +85,117 @@ impl State {
             .db
             .get::<StorageValue>(storage_key)?
             .map_or_else(U256::zero, |v| v.value))
+    }
+}
+
+impl TxStateView for State {
+    fn pre_account(
+        &self, address: &AddressWithSpace,
+    ) -> DbResult<Option<AccountSnapshot>> {
+        self.pre_tx_snapshot(address)
+    }
+
+    fn post_account(
+        &self, address: &AddressWithSpace,
+    ) -> DbResult<Option<AccountSnapshot>> {
+        let entry = self.read_account_lock(address)?;
+        match entry.as_ref() {
+            Some(account) if !account.removed_without_update() => {
+                Ok(Some(self.snapshot_account(address, account)?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn pre_storage(
+        &self, address: &AddressWithSpace, key: &H256,
+    ) -> DbResult<U256> {
+        match self.committed_cache.get(address) {
+            Some(entry) => match entry.account() {
+                Some(account) if !account.removed_without_update() => {
+                    account.storage_at(&self.db, key.as_bytes())
+                }
+                _ => Ok(U256::zero()),
+            },
+            None => self.storage_from_db(address, key.as_bytes()),
+        }
+    }
+
+    fn post_storage(
+        &self, address: &AddressWithSpace, key: &H256,
+    ) -> DbResult<U256> {
+        self.storage_at(address, key.as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{state::get_state_for_genesis_write, substate::Substate};
+    use cfx_rpc_eth_types::{
+        AccountOverride, AccountStateOverrideMode, StateOverride,
+    };
+    use cfx_types::{
+        address_util::AddressUtil, Address, AddressSpaceUtil, Space,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn state_override_is_the_pre_transaction_baseline() {
+        let base = get_state_for_genesis_write();
+        let address = Address::from_low_u64_be(1);
+        let key = H256::from_low_u64_be(2);
+        let value = H256::from_low_u64_be(9);
+        let mut storage = HashMap::new();
+        storage.insert(key, value);
+        let mut overrides = StateOverride::new();
+        overrides.insert(
+            address,
+            AccountOverride {
+                balance: Some(U256::from(7)),
+                nonce: Some(3.into()),
+                code: None,
+                state: AccountStateOverrideMode::State(storage),
+                move_precompile_to: None,
+            },
+        );
+
+        let state =
+            State::new_with_override(base.db, &overrides, Space::Ethereum)
+                .unwrap();
+        let address = address.with_evm_space();
+
+        let account = state.pre_account(&address).unwrap().unwrap();
+        assert_eq!(account.balance, U256::from(7));
+        assert_eq!(account.nonce, U256::from(3));
+        assert_eq!(state.pre_storage(&address, &key).unwrap(), U256::from(9));
+    }
+
+    #[test]
+    fn pre_storage_survives_contract_removal() {
+        let mut state = get_state_for_genesis_write();
+        let mut address = Address::zero();
+        address.set_contract_type_bits();
+        let address = address.with_native_space();
+        let key = H256::from_low_u64_be(1);
+
+        state
+            .new_contract_with_code(&address, U256::zero())
+            .unwrap();
+        state
+            .set_storage(
+                &address,
+                key.as_bytes().to_vec(),
+                U256::from(7),
+                address.address,
+                &mut Substate::new(),
+            )
+            .unwrap();
+        state.update_state_post_tx_execution(false);
+
+        state.remove_contract(&address).unwrap();
+
+        assert_eq!(state.pre_storage(&address, &key).unwrap(), U256::from(7));
+        assert!(state.post_account(&address).unwrap().is_none());
     }
 }

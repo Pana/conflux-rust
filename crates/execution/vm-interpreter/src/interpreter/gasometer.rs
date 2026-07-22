@@ -18,7 +18,7 @@
 // Conflux is free software and distributed under GNU General Public License.
 // See http://www.gnu.org/licenses/
 
-use cfx_types::{u256_to_h256_be, Space, U256};
+use cfx_types::{u256_to_h256_be, Address, Space, U256};
 use cfx_vm_types::{self as vm, Spec};
 use primitives::extract_7702_payload;
 use std::cmp;
@@ -54,6 +54,7 @@ pub struct InstructionRequirements<Cost> {
     pub memory_total_gas: Cost,
     pub memory_required_size: usize,
     pub gas_refund: i64,
+    pub delegation_target: Option<Address>,
 }
 
 pub struct Gasometer<Gas> {
@@ -139,6 +140,7 @@ impl<Gas: CostType> Gasometer<Gas> {
         };
 
         let mut gas_refund = 0;
+        let mut delegation_target = None;
 
         let cost = match instruction {
             instructions::JUMPDEST => Request::Gas(Gas::from(1)),
@@ -288,8 +290,10 @@ impl<Gas: CostType> Gasometer<Gas> {
                 Request::GasMem(gas, mem_needed(stack.peek(0), stack.peek(1))?)
             }
             instructions::CALL | instructions::CALLCODE => {
-                let mut gas =
-                    Gas::from(calc_call_gas(context, stack, self.current_gas)?);
+                let (call_gas, delegated) =
+                    calc_call_gas(context, stack, self.current_gas)?;
+                delegation_target = delegated;
+                let mut gas = Gas::from(call_gas);
                 let mem = cmp::max(
                     mem_needed(stack.peek(5), stack.peek(6))?,
                     mem_needed(stack.peek(3), stack.peek(4))?,
@@ -323,8 +327,10 @@ impl<Gas: CostType> Gasometer<Gas> {
                 Request::GasMemProvide(gas, mem, Some(requested))
             }
             instructions::DELEGATECALL | instructions::STATICCALL => {
-                let gas =
-                    Gas::from(calc_call_gas(context, stack, self.current_gas)?);
+                let (call_gas, delegated) =
+                    calc_call_gas(context, stack, self.current_gas)?;
+                delegation_target = delegated;
+                let gas = Gas::from(call_gas);
                 let mem = cmp::max(
                     mem_needed(stack.peek(4), stack.peek(5))?,
                     mem_needed(stack.peek(2), stack.peek(3))?,
@@ -409,6 +415,7 @@ impl<Gas: CostType> Gasometer<Gas> {
                 memory_required_size: 0,
                 memory_total_gas: self.current_mem_gas,
                 gas_refund,
+                delegation_target,
             },
             Request::GasMem(gas, mem_size) => {
                 let (mem_gas_cost, new_mem_gas, new_mem_size) =
@@ -420,6 +427,7 @@ impl<Gas: CostType> Gasometer<Gas> {
                     memory_required_size: new_mem_size,
                     memory_total_gas: new_mem_gas,
                     gas_refund,
+                    delegation_target,
                 }
             }
             Request::GasMemProvide(gas, mem_size, requested) => {
@@ -435,6 +443,7 @@ impl<Gas: CostType> Gasometer<Gas> {
                     memory_required_size: new_mem_size,
                     memory_total_gas: new_mem_gas,
                     gas_refund,
+                    delegation_target,
                 }
             }
             Request::GasMemCopy(gas, mem_size, copy) => {
@@ -452,6 +461,7 @@ impl<Gas: CostType> Gasometer<Gas> {
                     memory_required_size: new_mem_size,
                     memory_total_gas: new_mem_gas,
                     gas_refund,
+                    delegation_target,
                 }
             }
         })
@@ -606,10 +616,10 @@ fn calc_sstore_gas<Gas: CostType>(
 
 fn calc_call_gas<Gas: CostType>(
     context: &dyn vm::Context, stack: &dyn Stack<U256>, current_gas: Gas,
-) -> vm::Result<usize> {
+) -> vm::Result<(usize, Option<Address>)> {
     let spec = context.spec();
     if !spec.cip645.eip_cold_warm_access {
-        return Ok(spec.call_gas);
+        return Ok((spec.call_gas, None));
     }
 
     let address = u256_to_address(stack.peek(1));
@@ -621,22 +631,25 @@ fn calc_call_gas<Gas: CostType>(
 
     if current_gas < call_gas.into() {
         // Enough to trigger the out-of-gas
-        return Ok(call_gas);
+        return Ok((call_gas, None));
     }
 
     let maybe_code = context.extcode(&address)?;
     let Some(delegated_address) =
         maybe_code.and_then(|code| extract_7702_payload(&code))
     else {
-        return Ok(call_gas);
+        return Ok((call_gas, None));
     };
 
-    Ok(call_gas
-        + if context.is_warm_account(delegated_address) {
-            spec.warm_access_gas
-        } else {
-            spec.cold_account_access_cost
-        })
+    Ok((
+        call_gas
+            + if context.is_warm_account(delegated_address) {
+                spec.warm_access_gas
+            } else {
+                spec.cold_account_access_cost
+            },
+        Some(delegated_address),
+    ))
 }
 
 #[test]
