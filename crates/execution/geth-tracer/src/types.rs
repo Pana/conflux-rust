@@ -20,4 +20,5 @@ pub struct TxExecContext {
     pub tx_gas_limit: u64,
     pub block_number: BlockNumber,
     pub block_height: BlockHeight,
+    pub space: Space,
 }

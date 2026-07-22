@@ -137,6 +137,7 @@ impl UnitTester {
                 tx_gas_limit: tx.gas_limit().as_u64(),
                 block_height: env.epoch_height,
                 block_number: env.number,
+                space: tx.space(),
             })
         } else {
             None

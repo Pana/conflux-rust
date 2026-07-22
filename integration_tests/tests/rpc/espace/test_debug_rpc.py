@@ -139,6 +139,40 @@ def test_prestate_trace_block(ew3, erc20_token_transfer):
     )
     assert receipt["from"].lower() in transfer_trace["result"]
 
+def test_prestate_trace_keeps_storage_access_from_reverted_execution(ew3, evm_accounts):
+    sender = evm_accounts[0].address
+
+    # Runtime: PUSH1 0; SLOAD; PUSH1 0; PUSH1 0; REVERT.
+    # The transaction reverts after reading slot zero, but geth's prestate
+    # tracer still reports accesses made by reverted execution frames.
+    runtime = "60005460006000fd"
+    init_code = "6008600c60003960086000f3" + runtime
+    deploy_hash = ew3.eth.send_transaction({
+        "from": sender,
+        "data": "0x" + init_code,
+        "gas": 200_000,
+    })
+    deploy_receipt = ew3.eth.wait_for_transaction_receipt(deploy_hash)
+    contract_address = deploy_receipt["contractAddress"]
+    contract = contract_address.lower()
+
+    call_hash = ew3.eth.send_transaction({
+        "from": sender,
+        "to": contract_address,
+        "gas": 100_000,
+    })
+    receipt = ew3.eth.wait_for_transaction_receipt(call_hash)
+    assert receipt["status"] == 0
+
+    trace = ew3.manager.request_blocking("debug_traceTransaction", [
+        call_hash,
+        {"tracer": "prestateTracer"},
+    ])
+
+    zero_slot = "0x" + "00" * 32
+    assert contract in trace
+    assert trace[contract]["storage"][zero_slot] == zero_slot
+
 def test_opcode_trace_with_config(ew3, erc20_token_transfer):
     tx_hash = erc20_token_transfer["tx_hash"]
     trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {

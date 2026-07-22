@@ -1,4 +1,5 @@
 use cfx_executor::{
+    executive_observer::TraceDrainContext,
     observer::{
         CallTracer, CheckpointTracer, DrainTrace, InternalTransferTracer,
         OpcodeTracer, SetAuthTracer, StorageTracer,
@@ -53,8 +54,11 @@ pub struct GasMan {
 }
 
 impl DrainTrace for GasMan {
-    fn drain_trace(self, map: &mut ShareDebugMap) {
+    fn drain_trace(
+        self, _context: &TraceDrainContext<'_>, map: &mut ShareDebugMap,
+    ) -> cfx_statedb::Result<()> {
         map.insert::<GasLimitEstimationKey>(self.gas_required());
+        Ok(())
     }
 }
 

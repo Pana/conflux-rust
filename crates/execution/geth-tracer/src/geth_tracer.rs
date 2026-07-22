@@ -1,5 +1,6 @@
 use crate::{
     fourbyte::FourByteInspector,
+    prestate::build_prestate_frame,
     tracing_inspector::TracingInspector,
     types::TxExecContext,
     utils::{to_alloy_address, to_alloy_h256, to_alloy_u256, to_call_kind},
@@ -7,21 +8,22 @@ use crate::{
 };
 use alloy_primitives::{Address, Bytes, LogData};
 use alloy_rpc_types_trace::geth::{
-    CallConfig, DiffMode, GethDebugBuiltInTracerType,
-    GethDebugBuiltInTracerType::*, GethDebugTracerType,
-    GethDebugTracingOptions, GethTrace, NoopFrame, PreStateConfig,
-    PreStateFrame, PreStateMode,
+    CallConfig, GethDebugBuiltInTracerType, GethDebugBuiltInTracerType::*,
+    GethDebugTracerType, GethDebugTracingOptions, GethTrace, NoopFrame,
+    PreStateConfig,
 };
 use cfx_executor::{
     machine::Machine,
     observer::{
         CallTracer, CheckpointTracer, DrainTrace, InternalTransferTracer,
-        OpcodeTracer, SetAuthTracer, StorageTracer,
+        OpcodeTracer, SetAuthTracer, StorageTracer, TraceDrainContext,
     },
     stack::{FrameResult, FrameReturn},
+    state::PreStateStorageAccesses,
 };
-use cfx_types::{Space, H160};
+use cfx_types::{AddressSpaceUtil, BigEndianHash, Space, H160, H256};
 use cfx_vm_types::{ActionParams, CallType, Error, InterpreterInfo};
+use revm_bytecode::opcode;
 use revm_inspectors::tracing::types::{CallLog, TraceMemberOrder};
 use revm_interpreter::{Gas, InstructionResult, InterpreterResult};
 
@@ -39,6 +41,8 @@ pub struct GethTracer {
     depth: usize,
     //
     opts: GethDebugTracingOptions,
+    tx_space: Space,
+    prestate_slots: PreStateStorageAccesses,
     // gas stack, used to trace gas_spent in call_result/create_result
     pub gas_stack: Vec<u64>,
 }
@@ -48,7 +52,8 @@ impl GethTracer {
         tx_exec_context: TxExecContext, machine: Arc<Machine>,
         opts: GethDebugTracingOptions,
     ) -> Self {
-        let TxExecContext { tx_gas_limit, .. } = tx_exec_context;
+        let tx_gas_limit = tx_exec_context.tx_gas_limit;
+        let tx_space = tx_exec_context.space;
         let config = match opts.tracer {
             Some(GethDebugTracerType::BuiltInTracer(builtin_tracer)) => {
                 match builtin_tracer {
@@ -88,6 +93,8 @@ impl GethTracer {
             depth: 0,
             gas_left: tx_gas_limit,
             opts,
+            tx_space,
+            prestate_slots: Default::default(),
             gas_stack: Vec::new(),
         }
     }
@@ -119,9 +126,13 @@ impl GethTracer {
         self.tracer_type() == Some(FourByteTracer)
     }
 
+    fn is_prestate_tracer(&self) -> bool {
+        self.tracer_type() == Some(PreStateTracer)
+    }
+
     pub fn gas_used(&self) -> u64 { self.tx_gas_limit - self.gas_left }
 
-    pub fn drain(self) -> GethTrace {
+    fn drain_without_state(self) -> GethTrace {
         let trace = match self.tracer_type() {
             Some(t) => match t {
                 FourByteTracer => self.fourbyte_inspector.drain(),
@@ -135,19 +146,9 @@ impl GethTracer {
                     GethTrace::CallTracer(frame)
                 }
                 PreStateTracer => {
-                    // The tracer cannot borrow `State` during execution, so
-                    // it only emits an empty placeholder frame; the real
-                    // frame is built from the post-transaction state
-                    // snapshot and overrides this one in
-                    // `epoch_execution::process_transaction`.
-                    let opts =
-                        self.prestate_config().expect("should have config");
-                    let frame = if opts.is_default_mode() {
-                        PreStateFrame::Default(PreStateMode::default())
-                    } else {
-                        PreStateFrame::Diff(DiffMode::default())
-                    };
-                    GethTrace::PreStateTracer(frame)
+                    unreachable!(
+                        "prestate tracer is drained with transaction state"
+                    )
                 }
                 NoopTracer | MuxTracer | FlatCallTracer | Erc7562Tracer => {
                     GethTrace::NoopTracer(NoopFrame::default())
@@ -182,8 +183,21 @@ impl GethTracer {
 }
 
 impl DrainTrace for GethTracer {
-    fn drain_trace(self, map: &mut typemap::ShareDebugMap) {
-        map.insert::<GethTraceKey>(self.drain());
+    fn drain_trace(
+        self, context: &TraceDrainContext<'_>, map: &mut typemap::ShareDebugMap,
+    ) -> cfx_statedb::Result<()> {
+        let trace = if self.is_prestate_tracer() {
+            let config = self.prestate_config().expect("should have config");
+            let touched = context.state.collect_tx_touched_state(
+                self.tx_space,
+                &self.prestate_slots,
+            )?;
+            GethTrace::PreStateTracer(build_prestate_frame(touched, &config))
+        } else {
+            self.drain_without_state()
+        };
+        map.insert::<GethTraceKey>(trace);
+        Ok(())
     }
 }
 
@@ -364,7 +378,7 @@ impl CallTracer for GethTracer {
 
 impl OpcodeTracer for GethTracer {
     fn do_trace_opcode(&self, enabled: &mut bool) {
-        if self.inner.config.record_steps {
+        if self.inner.config.record_steps || self.is_prestate_tracer() {
             *enabled |= true;
         }
     }
@@ -379,6 +393,18 @@ impl OpcodeTracer for GethTracer {
         self.inner
             .gas_inspector
             .set_gas_remainning(interp.gas_remainning().as_u64());
+
+        if self.is_prestate_tracer()
+            && matches!(interp.current_opcode(), opcode::SLOAD | opcode::SSTORE)
+        {
+            if let Some(key) = interp.stack().last() {
+                let key: H256 = BigEndianHash::from_uint(key);
+                self.prestate_slots
+                    .entry(interp.contract_address().with_space(self.tx_space))
+                    .or_default()
+                    .insert(key);
+            }
+        }
 
         if self.inner.config.record_steps {
             self.inner.start_step(interp);

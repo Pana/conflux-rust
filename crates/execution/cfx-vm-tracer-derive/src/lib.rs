@@ -77,13 +77,18 @@ pub fn generate_drain_trace_function(input: TokenStream) -> TokenStream {
     let field_names = unwrap_or_compile_error!(get_field_names(data, name));
 
     let drain_statements = field_names.iter().map(|field| {
-        quote! { self.#field.drain_trace(map); }
+        quote! { self.#field.drain_trace(context, map)?; }
     });
 
     let expanded = quote! {
         impl DrainTrace for #name {
-            fn drain_trace(self, map: &mut typemap::ShareDebugMap) {
+            fn drain_trace(
+                self,
+                context: &cfx_executor::executive_observer::TraceDrainContext<'_>,
+                map: &mut typemap::ShareDebugMap,
+            ) -> cfx_statedb::Result<()> {
                 #(#drain_statements)*
+                Ok(())
             }
         }
     };

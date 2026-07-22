@@ -600,7 +600,7 @@ impl<'a, O: ExecutiveObserver> PreCheckedExecutive<'a, O> {
             Executed::execution_error_fully_charged(
                 self.tx,
                 self.cost,
-                make_ext_result(self.observer),
+                make_ext_result(self.observer, self.context.state)?,
                 &self.context.spec,
             ),
         ));
@@ -620,7 +620,7 @@ impl<'a, O: ExecutiveObserver> PreCheckedExecutive<'a, O> {
                 self.tx,
                 &actual_gas_cost,
                 self.cost,
-                make_ext_result(self.observer),
+                make_ext_result(self.observer, self.context.state)?,
                 &self.context.spec,
             ),
         ));
@@ -634,7 +634,7 @@ impl<'a, O: ExecutiveObserver> PreCheckedExecutive<'a, O> {
             Executed::execution_error_fully_charged(
                 self.tx,
                 self.cost,
-                make_ext_result(self.observer),
+                make_ext_result(self.observer, self.context.state)?,
                 &self.context.spec,
             ),
         ));
@@ -645,7 +645,7 @@ impl<'a, O: ExecutiveObserver> PreCheckedExecutive<'a, O> {
     ) -> DbResult<ExecutionOutcome> {
         let tx = self.tx;
         let cost = self.cost;
-        let ext_result = make_ext_result(self.observer);
+        let ext_result = make_ext_result(self.observer, self.context.state)?;
         let spec = self.context.spec;
         let tx_substate = self.substate;
 

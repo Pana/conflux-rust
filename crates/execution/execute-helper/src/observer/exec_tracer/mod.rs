@@ -21,6 +21,7 @@ pub use cfx_parity_trace_types::{
 use super::utils::CheckpointLog;
 
 use cfx_executor::{
+    executive_observer::TraceDrainContext,
     observer::{
         AddressPocket, CallTracer, CheckpointTracer, DrainTrace,
         InternalTransferTracer, OpcodeTracer, SetAuthTracer, StorageTracer,
@@ -53,8 +54,11 @@ impl ExecTracer {
 }
 
 impl DrainTrace for ExecTracer {
-    fn drain_trace(self, map: &mut ShareDebugMap) {
+    fn drain_trace(
+        self, _context: &TraceDrainContext<'_>, map: &mut ShareDebugMap,
+    ) -> cfx_statedb::Result<()> {
         map.insert::<ExecTraceKey>(self.drain());
+        Ok(())
     }
 }
 

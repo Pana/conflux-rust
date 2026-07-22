@@ -4032,6 +4032,7 @@ dependencies = [
  "alloy-rpc-types-trace",
  "alloy-sol-types",
  "cfx-executor",
+ "cfx-statedb",
  "cfx-types",
  "cfx-vm-interpreter",
  "cfx-vm-types",

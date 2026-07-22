@@ -13,7 +13,12 @@ use cfx_statedb::{Result as DbResult, StateDbExt};
 use cfx_types::{Address, AddressWithSpace, Space, H256, U256};
 use keccak_hash::KECCAK_EMPTY;
 use primitives::{StorageKey, StorageValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Storage slots observed by a tracer during one transaction. This access
+/// set is intentionally owned by the tracer so checkpoint reverts cannot
+/// remove entries from it.
+pub type PreStateStorageAccesses = HashMap<AddressWithSpace, HashSet<H256>>;
 
 /// Basic fields of an account at a fixed point in time.
 #[derive(Debug, Clone)]
@@ -51,7 +56,7 @@ impl State {
     /// Must be called after `transact()` returns and BEFORE
     /// `update_state_post_tx_execution()` (which drains `cache`).
     pub fn collect_tx_touched_state(
-        &self, space: Space,
+        &self, space: Space, accessed_slots: &PreStateStorageAccesses,
     ) -> DbResult<HashMap<Address, TxTouchedAccount>> {
         let cache = self.cache.read();
         let mut touched = HashMap::with_capacity(cache.len());
@@ -66,11 +71,33 @@ impl State {
                     } else {
                         Some(self.snapshot_account(addr, acc)?)
                     };
-                    (post, self.touched_slots(addr, acc)?)
+                    (
+                        post,
+                        self.touched_slots(
+                            addr,
+                            acc,
+                            accessed_slots.get(addr),
+                        )?,
+                    )
                 }
                 // Loaded but absent from the db (revm's
                 // `LoadedAsNotExisting`).
-                None => (None, vec![]),
+                None => (
+                    None,
+                    accessed_slots
+                        .get(addr)
+                        .map(|slots| {
+                            slots
+                                .iter()
+                                .map(|key| TouchedSlot {
+                                    key: *key,
+                                    original: U256::zero(),
+                                    present: U256::zero(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                ),
             };
             let pre = self.pre_tx_snapshot(addr)?;
             touched
@@ -141,17 +168,23 @@ impl State {
 
     fn touched_slots(
         &self, address: &AddressWithSpace, account: &OverlayAccount,
+        accessed_slots: Option<&HashSet<H256>>,
     ) -> DbResult<Vec<TouchedSlot>> {
-        let mut slots = vec![];
-        for (key, original, written) in account.tx_touched_storage() {
-            let original = match original {
+        let Some(accessed_slots) = accessed_slots else {
+            return Ok(vec![]);
+        };
+
+        let mut slots = Vec::with_capacity(accessed_slots.len());
+        for key in accessed_slots {
+            let original = match account.origin_storage_at(key.as_bytes()) {
                 Some(value) => value,
-                None => self.storage_from_db(address, &key)?,
+                None => self.storage_from_db(address, key.as_bytes())?,
             };
+            let present = account.storage_at(&self.db, key.as_bytes())?;
             slots.push(TouchedSlot {
-                key: storage_key_to_h256(&key),
+                key: *key,
                 original,
-                present: written.unwrap_or(original),
+                present,
             });
         }
         Ok(slots)
@@ -167,13 +200,4 @@ impl State {
             .get::<StorageValue>(storage_key)?
             .map_or_else(U256::zero, |v| v.value))
     }
-}
-
-/// eSpace storage keys are always 32 bytes; shorter (native-space special)
-/// keys are left-padded defensively.
-fn storage_key_to_h256(key: &[u8]) -> H256 {
-    let mut h = H256::zero();
-    let len = key.len().min(32);
-    h.as_bytes_mut()[32 - len..].copy_from_slice(&key[key.len() - len..]);
-    h
 }

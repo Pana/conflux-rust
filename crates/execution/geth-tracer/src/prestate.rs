@@ -69,7 +69,7 @@ fn to_account_info(snapshot: &AccountSnapshot) -> AccountInfo {
 /// Converts the touched-state snapshot into revm's `EvmState` + a
 /// pre-transaction `DatabaseRef` and runs revm-inspectors'
 /// `geth_prestate_traces` over them.
-pub fn build_prestate_frame(
+pub(crate) fn build_prestate_frame(
     touched: HashMap<CfxAddress, TxTouchedAccount>, config: &PreStateConfig,
 ) -> PreStateFrame {
     let mut state = EvmState::default();

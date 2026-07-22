@@ -323,31 +323,6 @@ impl OverlayAccount {
         self.storage_write_cache.read().get(key).is_some()
     }
 
-    /// Enumerates the storage slots touched by the current transaction:
-    /// `storage_write_cache` holds an entry for every accessed slot, a
-    /// `Read` marker for loads and a `Write` value for stores.
-    ///
-    /// Returns `(key, original, written)` tuples. `original` is the value at
-    /// transaction start resolved through the `origin_storage_at` chain
-    /// (`None` when it can only be obtained from the backing db). `written`
-    /// is the value stored by the transaction (`None` for read-only slots,
-    /// whose present value equals the original).
-    pub(in crate::state) fn tx_touched_storage(
-        &self,
-    ) -> Vec<(Vec<u8>, Option<U256>, Option<U256>)> {
-        self.storage_write_cache
-            .read()
-            .iter()
-            .map(|(key, item)| {
-                let written = match item {
-                    WriteCacheItem::Write(value) => Some(value.value),
-                    WriteCacheItem::Read => None,
-                };
-                (key.clone(), self.origin_storage_at(key), written)
-            })
-            .collect()
-    }
-
     #[cfg(test)]
     pub fn storage_layout_change(&self) -> Option<&StorageLayout> {
         self.storage_layout_change.as_ref()

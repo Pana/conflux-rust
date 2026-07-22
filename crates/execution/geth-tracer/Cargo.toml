@@ -21,6 +21,7 @@ alloy-rpc-types-trace = { workspace = true }
 cfx-vm-types = { workspace = true }
 cfx-types = { workspace = true }
 cfx-executor = { workspace = true }
+cfx-statedb = { workspace = true }
 typemap = { workspace = true }
 cfx-vm-interpreter = { workspace = true }
 primitives = { workspace = true }
