@@ -20,7 +20,7 @@ use cfx_executor::{
     },
     stack::{FrameResult, FrameReturn},
 };
-use cfx_types::{Space, H160};
+use cfx_types::{Address as CfxAddress, Space, H160, U256};
 use cfx_vm_types::{ActionParams, CallType, Error, InterpreterInfo};
 use revm_inspectors::tracing::types::{CallLog, TraceMemberOrder};
 use revm_interpreter::{Gas, InstructionResult, InterpreterResult};
@@ -422,8 +422,8 @@ impl OpcodeTracer for GethTracer {
     }
 
     fn selfdestruct(
-        &mut self, space: Space, _contract: &cfx_types::Address,
-        target: &cfx_types::Address, _value: cfx_types::U256,
+        &mut self, space: Space, contract: &CfxAddress, target: &CfxAddress,
+        value: U256,
     ) {
         if self.is_fourbyte_tracer() {
             return;
@@ -431,8 +431,9 @@ impl OpcodeTracer for GethTracer {
 
         let trace_idx = self.inner.last_trace_idx();
         let trace = &mut self.inner.traces.nodes_mut()[trace_idx].trace;
-        trace.selfdestruct_refund_target =
-            Some(to_alloy_address(*target as H160))
+        trace.selfdestruct_address = Some(to_alloy_address(*contract));
+        trace.selfdestruct_refund_target = Some(to_alloy_address(*target));
+        trace.selfdestruct_transferred_value = Some(to_alloy_u256(value));
     }
 }
 
