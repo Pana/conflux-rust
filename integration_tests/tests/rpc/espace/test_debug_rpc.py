@@ -58,6 +58,21 @@ def test_call_trace(ew3, erc20_token_transfer):
     assert call_trace["value"] == "0x0"
     assert call_trace["output"] == "0x0000000000000000000000000000000000000000000000000000000000000001"
 
+def test_default_tracer_limit(ew3, erc20_token_transfer):
+    tx_hash = erc20_token_transfer["tx_hash"]
+    default_trace = ew3.manager.request_blocking(
+        'debug_traceTransaction', [tx_hash]
+    )
+    limited_trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {
+        "limit": 10
+    }])
+    unlimited_trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {
+        "limit": 0
+    }])
+
+    assert len(limited_trace["structLogs"]) == 10
+    assert len(unlimited_trace["structLogs"]) == len(default_trace["structLogs"])
+
 def test_opcode_trace_with_config(ew3, erc20_token_transfer):
     tx_hash = erc20_token_transfer["tx_hash"]
     trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {
@@ -70,16 +85,6 @@ def test_opcode_trace_with_config(ew3, erc20_token_transfer):
     oplog_len = len(trace["structLogs"])
     assert trace["failed"] == False
     assert oplog_len == 304
-
-    # limit parameter test
-    limited_trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {
-        "enableMemory": True,
-        "disableStack": False,
-        "disableStorage": False,
-        "enableReturnData": True,
-        "limit": 10
-    }])
-    assert len(limited_trace["structLogs"]) == 10
 
     no_stack_storage_trace = ew3.manager.request_blocking('debug_traceTransaction', [tx_hash, {
         "enableMemory": True,

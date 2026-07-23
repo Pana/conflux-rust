@@ -160,11 +160,18 @@ impl GethTracer {
                     .clone()
                     .unwrap_or_default();
                 let opts = self.opts.config;
-                let frame = self.inner.into_geth_builder().geth_traces(
+                let limit = opts
+                    .limit
+                    .filter(|limit| *limit != 0)
+                    .and_then(|limit| usize::try_from(limit).ok());
+                let mut frame = self.inner.into_geth_builder().geth_traces(
                     gas_used,
                     return_value,
                     opts,
                 );
+                if let Some(limit) = limit {
+                    frame.struct_logs.truncate(limit);
+                }
                 GethTrace::Default(frame)
             }
         };
