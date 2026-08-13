@@ -153,17 +153,17 @@ impl GethTracer {
                     .clone()
                     .unwrap_or_default();
                 let opts = self.opts.config;
-                let limit = opts.limit;
+                let limit = opts
+                    .limit
+                    .filter(|limit| *limit != 0)
+                    .and_then(|limit| usize::try_from(limit).ok());
                 let mut frame = self.inner.into_geth_builder().geth_traces(
                     gas_used,
                     return_value,
                     opts,
                 );
-                // The upstream revm-inspectors builder does not apply the
-                // `limit` option, so
-                // truncate here.
-                if let Some(limit) = limit.filter(|limit| *limit > 0) {
-                    frame.struct_logs.truncate(limit as usize);
+                if let Some(limit) = limit {
+                    frame.struct_logs.truncate(limit);
                 }
                 GethTrace::Default(frame)
             }
@@ -500,8 +500,9 @@ impl OpcodeTracer for GethTracer {
 
         let trace_idx = self.inner.last_trace_idx();
         let trace = &mut self.inner.traces.nodes_mut()[trace_idx].trace;
-        trace.selfdestruct_refund_target =
-            Some(to_alloy_address(*target as H160))
+        trace.selfdestruct_address = Some(to_alloy_address(*contract));
+        trace.selfdestruct_refund_target = Some(to_alloy_address(*target));
+        trace.selfdestruct_transferred_value = Some(to_alloy_u256(value));
     }
 }
 
